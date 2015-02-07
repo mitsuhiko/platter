@@ -393,6 +393,8 @@ def cleanup_cmd(output, retain_count):
 
     infos = []
     for filename in files:
+        if filename[:1] == '.':
+            continue
         try:
             infos.append((filename,
                           os.stat(os.path.join(output, filename)).st_mtime))
