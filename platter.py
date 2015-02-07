@@ -19,26 +19,73 @@ PACKAGE_JSON_URL = 'https://pypi.python.org/pypi/%s/json'
 SUPPORTED_ARCHIVES = ('.tar.gz', '.tar', '.zip')
 INSTALLER = '''\
 #!/bin/sh
-# This script installs the bundled wheel distribution of {name} into
+# This script installs the bundled wheel distribution of %(name)s into
 # a provided path where it will end up in a new virtualenv.
 
-if [ "$1" == "" ]; then
-  echo "usage: ./install.sh [dst]"
+set -e
+
+show_usage() {
+echo "Usage: ./install.sh [OPTIONS] DST"
+}
+
+show_help() {
+  show_usage
+cat << EOF
+
+  Installs %(name)s into a new virtualenv that is provided as the DST
+  parameter.  The interpreter to use for this virtualenv can be
+  overridden by the "-p" parameter.
+
+Options:
+  --help              display this help and exit.
+  -p --python PYTHON  use an alternative Python interpreter
+EOF
+  exit 0
+}
+
+param_error() {
+  show_usage
+  echo
+  echo "Error: $1"
   exit 1
+}
+
+py="%(python)s"
+
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --help)         show_help ;;
+    -p|--python)
+      if [ "$#" -gt 1 ]; then
+        py="$2"
+        shift
+      else
+        param_error "$1 option requires an argument"
+      fi
+      ;;
+    --python=?*)    py=${1#*=} ;;
+    --)             shift; break ;;
+    -?*)            param_error "no such option: $1" ;;
+    *)              break
+  esac
+  shift
+done
+
+if [ "$1" == "" ]; then
+  param_error "destination argument is required"
 fi
 
 here="$(cd "$(dirname "$0")"; pwd)"
 data_dir="$here/data"
 venv="$1"
 
-# Bootstrap virtualenv
-"{python}" "$data_dir/virtualenv.py" "$venv"
-"$venv/bin/pip" install --no-index --find-links "$data_dir" --upgrade wheel
+# Ensure Python exists
+command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)"
 
-# Install distribution
-"$venv/bin/pip" install --pre --no-index --find-links "$data_dir" "{package}"
-
-# All done
+echo 'Setting up virtualenv'
+"$py" "$data_dir/virtualenv.py" "$venv"
+echo "Installing %(name)s"
+"$venv/bin/pip" -q install --pre --no-index --find-links "$data_dir" wheel "%(pkg)s"
 echo "Done."
 '''
 
@@ -253,11 +300,11 @@ class Builder(object):
     def put_installer(self, scratchpad, pkginfo):
         fn = os.path.join(scratchpad, 'install.sh')
         with open(fn, 'w') as f:
-            f.write(INSTALLER.format(
+            f.write((INSTALLER % dict(
                 name=pkginfo['ident'],
-                package=pkginfo['name'],
+                pkg=pkginfo['name'],
                 python=os.path.basename(self.python),
-            ).encode('utf-8'))
+            )).encode('utf-8'))
         os.chmod(fn, 0100755)
 
     def put_meta_info(self, scratchpad, pkginfo):
@@ -347,6 +394,15 @@ def cli():
     """Platter packages up a Python package into a tarball that can install
     into a local virtualenv through a bundled install script.  The only
     requirement on the destination host is a compatible Python installation.
+
+    To build a package with platter use run `platter build`:
+
+        $ platter build
+
+    This will look for the closest Python package.  You can also be explicit
+    and provide the path to it:
+
+        $ platter build /path/to/the/project
     """
 
 
