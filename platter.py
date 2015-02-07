@@ -274,14 +274,14 @@ class Builder(object):
 
     def create_archive(self, scratchpad, pkginfo, format):
         base = pkginfo['ident'] + '-' + pkginfo['platform']
+        try:
+            os.makedirs(self.output)
+        except OSError:
+            pass
 
         if format == 'dir':
             rv_fn = os.path.join(self.output, base)
             log('archiver', 'Saving artifact as directory {}', rv_fn)
-            try:
-                os.makedirs(self.output)
-            except OSError:
-                pass
             os.rename(scratchpad, rv_fn)
             return
 
@@ -290,10 +290,6 @@ class Builder(object):
         tmp_fn = os.path.join(self.output, '.' + archive_name)
 
         log('archiver', 'Creating distribution archive {}', rv_fn)
-        try:
-            os.makedirs(self.output)
-        except OSError:
-            pass
 
         f = None
         try:
@@ -380,3 +376,46 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version) as builder:
         builder.build(format)
+
+
+@cli.command('cleanup')
+@click.option('--output', type=click.Path(), default='dist',
+              help='The output folder', show_default=True)
+@click.option('-C', '--retain-count', default=0,
+              help='The number of builds to keep.  Defaults to 0.')
+def cleanup_cmd(output, retain_count):
+    """Cleans up old build artifacts in the output folder."""
+    log('rm', 'Cleaning up old artifacts in {}', output)
+    try:
+        files = os.listdir(output)
+    except OSError:
+        return
+
+    infos = []
+    for filename in files:
+        try:
+            infos.append((filename,
+                          os.stat(os.path.join(output, filename)).st_mtime))
+        except OSError:
+            pass
+
+    infos.sort(key=lambda x: (x[1], x[0]))
+    if retain_count > 0:
+        infos = infos[:-retain_count]
+
+    anything_removed = False
+    for filename, mtime in infos:
+        log('rm', 'Deleting old artifact {}', filename)
+        try:
+            os.remove(os.path.join(output, filename))
+        except OSError:
+            try:
+                shutil.rmtree(os.path.join(output, filename))
+            except OSError:
+                pass
+        anything_removed = True
+
+    if not anything_removed:
+        log('rm', 'Nothing to remove.')
+    else:
+        log('rm', 'Done.')
