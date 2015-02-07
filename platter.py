@@ -14,6 +14,7 @@ import posixpath
 import subprocess
 
 
+FORMATS = ['tar.gz', 'tar.bz2', 'tar', 'zip', 'dir']
 PACKAGE_JSON_URL = 'https://pypi.python.org/pypi/%s/json'
 SUPPORTED_ARCHIVES = ('.tar.gz', '.tar', '.zip')
 INSTALLER = '''\
@@ -27,14 +28,15 @@ if [ "$1" == "" ]; then
 fi
 
 here="$(cd "$(dirname "$0")"; pwd)"
+data_dir="$here/data"
 venv="$1"
 
 # Bootstrap virtualenv
-"{python}" "$here/virtualenv.py" "$venv"
-"$venv/bin/pip" install --no-index --find-links "$here" --upgrade wheel
+"{python}" "$data_dir/virtualenv.py" "$venv"
+"$venv/bin/pip" install --no-index --find-links "$data_dir" --upgrade wheel
 
 # Install distribution
-"$venv/bin/pip" install --pre --no-index --find-links "$here" "{package}"
+"$venv/bin/pip" install --pre --no-index --find-links "$data_dir" "{package}"
 
 # All done
 echo "Done."
@@ -221,22 +223,22 @@ class Builder(object):
             target = os.path.join(target, os.path.basename(filename))
         shutil.copy2(filename, target)
 
-    def install_venv_deps(self, venv_path, wheel_path, scratchpad):
+    def install_venv_deps(self, venv_path, wheel_path, data_dir):
         log('builder', 'Installing virtualenv dependencies')
         self.copy_file(os.path.join(venv_path, 'virtualenv.py'),
-                       scratchpad)
-        self.copy_file(os.path.join(wheel_path), scratchpad)
+                       data_dir)
+        self.copy_file(os.path.join(wheel_path), data_dir)
 
         support_path = os.path.join(venv_path, 'virtualenv_support')
 
         for filename in os.listdir(support_path):
             if filename.endswith('.whl'):
-                self.copy_file(os.path.join(support_path, filename), scratchpad)
+                self.copy_file(os.path.join(support_path, filename), data_dir)
 
-    def build_wheels(self, venv_path, scratchpad):
+    def build_wheels(self, venv_path, data_dir):
         log('builder', 'Building wheels')
         self.execute(os.path.join(venv_path, 'bin', 'pip'),
-                     ['wheel', self.path, '--wheel-dir=' + scratchpad])
+                     ['wheel', self.path, '--wheel-dir=' + data_dir])
 
     def setup_build_venv(self, virtualenv):
         scratchpad = self.make_scratchpad('venv')
@@ -258,30 +260,70 @@ class Builder(object):
             ).encode('utf-8'))
         os.chmod(fn, 0100755)
 
-    def create_archive(self, scratchpad, pkginfo):
+    def put_meta_info(self, scratchpad, pkginfo):
+        log('meta', 'Placing meta information')
+        with open(os.path.join(scratchpad, 'info.json'), 'w') as f:
+            json.dump(pkginfo, f, indent=2)
+            f.write('\n')
+        with open(os.path.join(scratchpad, 'VERSION'), 'w') as f:
+            f.write(pkginfo['version'].encode('utf-8') + '\n')
+        with open(os.path.join(scratchpad, 'PLATFORM'), 'w') as f:
+            f.write(pkginfo['platform'].encode('utf-8') + '\n')
+        with open(os.path.join(scratchpad, 'PACKAGE'), 'w') as f:
+            f.write(pkginfo['name'].encode('utf-8') + '\n')
+
+    def create_archive(self, scratchpad, pkginfo, format):
         base = pkginfo['ident'] + '-' + pkginfo['platform']
-        archive_name = base + '.tar.gz'
+
+        if format == 'dir':
+            rv_fn = os.path.join(self.output, base)
+            log('archiver', 'Saving artifact as directory {}', rv_fn)
+            try:
+                os.makedirs(self.output)
+            except OSError:
+                pass
+            os.rename(scratchpad, rv_fn)
+            return
+
+        archive_name = base + '.' + format
         rv_fn = os.path.join(self.output, archive_name)
+        tmp_fn = os.path.join(self.output, '.' + archive_name)
+
         log('archiver', 'Creating distribution archive {}', rv_fn)
         try:
             os.makedirs(self.output)
         except OSError:
             pass
-        tmp_fn = os.path.join(self.output, '.' + archive_name)
+
+        f = None
         try:
-            f = tarfile.open(tmp_fn, 'w:gz')
-            try:
+            if format in ('tar.gz', 'tar.bz2', 'tar'):
+                if '.' in format:
+                    mode = 'w:' + format.split('.')[1]
+                else:
+                    mode = 'w'
+                f = tarfile.open(tmp_fn, mode)
                 f.add(scratchpad, base)
-            finally:
+                f.close()
+            elif format == 'zip':
+                f = zipfile.ZipFile(tmp_fn, 'w')
+                for dirpath, dirnames, files in os.walk(scratchpad):
+                    for file in files:
+                        f.write(os.path.join(dirpath, file),
+                                os.path.join(base, dirpath[
+                                    len(scratchpad) + 1:], file),
+                                zipfile.ZIP_DEFLATED)
                 f.close()
             os.rename(tmp_fn, rv_fn)
         finally:
+            if f is not None:
+                f.close()
             try:
                 os.remove(tmp_fn)
             except OSError:
                 pass
 
-    def build(self):
+    def build(self, format):
         venv_src = ensure_package('virtualenv', self.virtualenv_version)
         wheel_src = ensure_package('wheel', self.wheel_version, as_wheel=True)
 
@@ -293,12 +335,15 @@ class Builder(object):
         log('pkg', 'name={} version={}', pkginfo['name'], pkginfo['version'])
 
         scratchpad = self.make_scratchpad('buildbase')
+        data_dir = os.path.join(scratchpad, 'data')
+        os.makedirs(data_dir)
 
-        self.install_venv_deps(venv_src, wheel_src, scratchpad)
-        self.build_wheels(venv_path, scratchpad)
+        self.install_venv_deps(venv_src, wheel_src, data_dir)
+        self.build_wheels(venv_path, data_dir)
         self.put_installer(scratchpad, pkginfo)
+        self.put_meta_info(scratchpad, pkginfo)
 
-        self.create_archive(scratchpad, pkginfo)
+        self.create_archive(scratchpad, pkginfo, format)
 
 
 @click.group()
@@ -319,7 +364,11 @@ def cli():
               'The default is to use the latest stable version from PyPI.')
 @click.option('--wheel-version', help='The version of the wheel package '
               'that should be used.  Defaults to latest stable from PyPI.')
-def build_cmd(path, output, python, virtualenv_version, wheel_version):
+@click.option('--format', default='tar.gz', type=click.Choice(FORMATS),
+              help='The format of the resulting build artifact',
+              show_default=True)
+def build_cmd(path, output, python, virtualenv_version, wheel_version,
+              format):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
     """
@@ -330,4 +379,4 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version):
     with Builder(path, output, python=python,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version) as builder:
-        builder.build()
+        builder.build(format)
