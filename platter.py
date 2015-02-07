@@ -254,6 +254,9 @@ class Builder(object):
                 pass
 
     def describe_package(self, python):
+        # Do dummy invoke first to trigger setup requires.
+        self.execute(python, ['setup.py', '--version'], capture=True)
+
         rv = self.execute(python, [
             'setup.py', '--name', '--version', '--fullname'],
             capture=True).strip().splitlines()
