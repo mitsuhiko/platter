@@ -84,6 +84,8 @@ echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
   --find-links "$DATA_DIR" wheel "%(pkg)s" | grep -v '^$'
 
+# Potential post installation
+cd "$HERE"
 %(postinstall)s
 
 echo "Done."
