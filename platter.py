@@ -118,14 +118,15 @@ def find_closest_package():
 class Builder(object):
 
     def __init__(self, path, output, python=None, virtualenv_version=None,
-                 wheel_version=None):
-        self.path = path
+                 wheel_version=None, pip_options=None):
+        self.path = os.path.abspath(path)
         self.output = output
         if python is None:
             python = sys.executable
         self.python = python
         self.virtualenv_version = virtualenv_version
         self.wheel_version = wheel_version
+        self.pip_options = list(pip_options or ())
         self.scratchpads = []
 
     def __enter__(self):
@@ -195,19 +196,20 @@ class Builder(object):
         log('builder', 'Building wheels')
         pip = os.path.join(venv_path, 'bin', 'pip')
 
-        self.execute(pip, ['install', '--download', data_dir,
-                           make_spec('wheel', self.wheel_version)])
+        self.execute(pip, ['install', '--download', data_dir] + self.pip_options
+                     + [make_spec('wheel', self.wheel_version)])
         self.execute(os.path.join(venv_path, 'bin', 'pip'),
-                     ['wheel', self.path, '--wheel-dir=' + data_dir])
+                     ['wheel', '--wheel-dir=' + data_dir]
+                     + self.pip_options + [self.path])
 
     def setup_build_venv(self, virtualenv):
         scratchpad = self.make_scratchpad('venv')
         log('venv', 'Initializing build virtualenv in {}', scratchpad)
         self.execute(self.python, [os.path.join(virtualenv, 'virtualenv.py'),
                                    scratchpad])
-        # XXX: install from local
         self.execute(os.path.join(scratchpad, 'bin', 'pip'),
-                     ['install', 'wheel'])
+                     ['install'] + self.pip_options +
+                     [make_spec('wheel', self.wheel_version)])
         return scratchpad
 
     def put_installer(self, scratchpad, pkginfo):
@@ -281,8 +283,9 @@ class Builder(object):
 
     def extract_virtualenv(self):
         scratchpad = self.make_scratchpad('venv-tmp')
-        self.execute('pip', ['install', '--download', scratchpad,
-                             make_spec('virtualenv', self.virtualenv_version)])
+        self.execute('pip', ['install', '--download', scratchpad] +
+                     self.pip_options +
+                     [make_spec('virtualenv', self.virtualenv_version)])
 
         artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
         if artifact.endswith(('.zip', '.whl')):
@@ -305,6 +308,10 @@ class Builder(object):
         return scratchpad
 
     def build(self, format):
+        if not os.path.isdir(self.path):
+            raise click.UsageError('The project path (%s) does not exist'
+                                   % self.path)
+
         venv_src = self.extract_virtualenv()
 
         venv_path = self.setup_build_venv(venv_src)
@@ -344,20 +351,29 @@ def cli():
 
 
 @cli.command('build')
-@click.argument('path', required=False)
+@click.argument('path', required=False, type=click.Path())
 @click.option('--output', type=click.Path(), default='dist',
               help='The output folder', show_default=True)
-@click.option('-p', '--python', help='The python interpreter to use for '
-              'building')
+@click.option('-p', '--python', type=click.Path(),
+              help='The python interpreter to use for building.  This '
+              'interpreter is both used for compiling the packages and also '
+              'used as default in the generated install script.')
 @click.option('--virtualenv-version', help='The version of virtualenv to use. '
-              'The default is to use the latest stable version from PyPI.')
+              'The default is to use the latest stable version from PyPI.',
+              metavar='SPEC')
+@click.option('--pip-option', multiple=True, help='Adds an option to pip.  To '
+              'add multiple options, use this parameter multiple times.  '
+              'Example:  --pip-option="--isolated"',
+              type=click.Path(), metavar='OPT')
 @click.option('--wheel-version', help='The version of the wheel package '
-              'that should be used.  Defaults to latest stable from PyPI.')
+              'that should be used.  Defaults to latest stable from PyPI.',
+              metavar='SPEC')
 @click.option('--format', default='tar.gz', type=click.Choice(FORMATS),
-              help='The format of the resulting build artifact',
-              show_default=True)
+              help='The format of the resulting build artifact as file '
+              'extension.  Supported formats: ' + ', '.join(FORMATS),
+              show_default=True, metavar='EXTENSION')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
-              format):
+              format, pip_option):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
     """
@@ -367,7 +383,8 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
 
     with Builder(path, output, python=python,
                  virtualenv_version=virtualenv_version,
-                 wheel_version=wheel_version) as builder:
+                 wheel_version=wheel_version,
+                 pip_options=list(pip_option)) as builder:
         builder.build(format)
 
 
