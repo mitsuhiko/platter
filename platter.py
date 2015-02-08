@@ -3,14 +3,10 @@ import sys
 import json
 import click
 import shutil
-import urllib
-import socket
-import hashlib
 import tarfile
 import zipfile
 import tempfile
 import sysconfig
-import posixpath
 import subprocess
 
 
@@ -91,6 +87,14 @@ echo "Done."
 '''
 
 
+def make_spec(pkg, version=None):
+    if version is None:
+        return pkg
+    if version[:1] in '>=':
+        return pkg + version
+    return '%s==%s' % (pkg, version)
+
+
 def log(category, message, *args, **kwargs):
     click.echo('%s: %s' % (
         click.style(category.rjust(10), fg='cyan'),
@@ -109,107 +113,6 @@ def find_closest_package():
             break
         node = parent
     raise click.UsageError('Cannot discover package, you need to be explicit.')
-
-
-def get_config_folder():
-    return os.path.expanduser('~/.platter')
-
-
-def ensure_package(name, version=None, as_wheel=False):
-    def _get_target_filename(version):
-        return os.path.join(get_config_folder(), '%s-cache' % name, version)
-
-    def _complete_path(path):
-        if not as_wheel:
-            return path
-        return os.path.join(path, next(x for x in os.listdir(path)
-                                       if x[:1] != '.'))
-
-    # If we already have this version of virtualenv and a specific version
-    # is requested, we can just use this.
-    if version is not None:
-        path = _get_target_filename(version)
-        if os.path.isdir(path):
-            return _complete_path(path)
-        log('dl', 'Downloading requested version of {} ({})', name,
-            version)
-    else:
-        log('dl', 'Discovering latest version of {}', name)
-
-    if as_wheel:
-        pkg_type = 'bdist_wheel'
-        unpack = False
-        supported_archives = ('.whl',)
-    else:
-        pkg_type = 'sdist'
-        unpack = True
-        supported_archives = ('.tar.gz', '.tar', '.zip')
-
-    try:
-        meta = json.load(urllib.urlopen(PACKAGE_JSON_URL % name))
-    except (IOError, socket.error):
-        raise click.UsageError('Failed to download information about '
-                               '%s from PyPI.' % name)
-
-    try:
-        if version is None:
-            version = meta['info']['version']
-            path = _get_target_filename(version)
-            if os.path.isdir(path):
-                return _complete_path(path)
-        latest_url, md5 = next((x['url'], x['md5_digest'])
-                               for x in meta['releases'].get(version, ())
-                               if x['packagetype'] == pkg_type and
-                               x['url'].endswith(supported_archives))
-    except StopIteration:
-        raise click.UsageError('The requested version of %s could '
-                               'not be found (%s)' %
-                               (name, version or 'latest'))
-
-    log('dl', 'Downloading {}', name + '-' + version)
-    h = hashlib.md5()
-    with tempfile.NamedTemporaryFile() as of:
-        filename = posixpath.basename(latest_url)
-        f = urllib.urlopen(latest_url)
-        while 1:
-            chunk = f.read(16384)
-            if not chunk:
-                break
-            h.update(chunk)
-            of.write(chunk)
-        f.close()
-        of.flush()
-
-        if h.hexdigest() != md5.lower():
-            raise click.UsageError('Failed to download a valid %s '
-                                   'package.' % name)
-
-        if not unpack:
-            try:
-                os.makedirs(path)
-            except OSError:
-                pass
-            shutil.copy(of.name, os.path.join(path, filename))
-        else:
-            log('dl', 'Extracting package', version)
-            if latest_url.endswith('.zip'):
-                f = zipfile.ZipFile(of.name)
-            else:
-                f = tarfile.open(of.name)
-
-            tmp_folder = path + '___'
-            try:
-                try:
-                    os.makedirs(tmp_folder)
-                except OSError:
-                    pass
-                f.extractall(tmp_folder)
-                os.rename(os.path.join(tmp_folder, os.listdir(tmp_folder)[0]),
-                          path)
-            finally:
-                shutil.rmtree(tmp_folder)
-
-        return _complete_path(path)
 
 
 class Builder(object):
@@ -244,7 +147,10 @@ class Builder(object):
         if capture:
             kwargs['stdout'] = subprocess.PIPE
         cl = subprocess.Popen(cmdline, cwd=self.path, **kwargs)
-        return cl.communicate()[0]
+        rv = cl.communicate()[0]
+        if cl.wait() != 0:
+            raise click.UsageError('Failed to execute command "%s"' % cmd)
+        return rv
 
     def close(self):
         for sp in reversed(self.scratchpads):
@@ -274,11 +180,10 @@ class Builder(object):
             target = os.path.join(target, os.path.basename(filename))
         shutil.copy2(filename, target)
 
-    def install_venv_deps(self, venv_path, wheel_path, data_dir):
+    def install_venv_deps(self, venv_path, data_dir):
         log('builder', 'Installing virtualenv dependencies')
         self.copy_file(os.path.join(venv_path, 'virtualenv.py'),
                        data_dir)
-        self.copy_file(os.path.join(wheel_path), data_dir)
 
         support_path = os.path.join(venv_path, 'virtualenv_support')
 
@@ -288,6 +193,10 @@ class Builder(object):
 
     def build_wheels(self, venv_path, data_dir):
         log('builder', 'Building wheels')
+        pip = os.path.join(venv_path, 'bin', 'pip')
+
+        self.execute(pip, ['install', '--download', data_dir,
+                           make_spec('wheel', self.wheel_version)])
         self.execute(os.path.join(venv_path, 'bin', 'pip'),
                      ['wheel', self.path, '--wheel-dir=' + data_dir])
 
@@ -370,9 +279,33 @@ class Builder(object):
             except OSError:
                 pass
 
+    def extract_virtualenv(self):
+        scratchpad = self.make_scratchpad('venv-tmp')
+        self.execute('pip', ['install', '--download', scratchpad,
+                             make_spec('virtualenv', self.virtualenv_version)])
+
+        artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
+        if artifact.endswith(('.zip', '.whl')):
+            f = zipfile.ZipFile(artifact)
+        else:
+            f = tarfile.open(artifact)
+        f.extractall(scratchpad)
+        f.close()
+        os.remove(artifact)
+
+        # We need to detect if we contain a single artifact that is a
+        # folder in which case we need to use that.  Wheels for instance
+        # do not contain a wrapping folder.
+        artifacts = os.listdir(scratchpad)
+        if len(artifacts) == 1:
+            rv = os.path.join(scratchpad, artifacts[0])
+            if os.path.isdir(rv):
+                return rv
+
+        return scratchpad
+
     def build(self, format):
-        venv_src = ensure_package('virtualenv', self.virtualenv_version)
-        wheel_src = ensure_package('wheel', self.wheel_version, as_wheel=True)
+        venv_src = self.extract_virtualenv()
 
         venv_path = self.setup_build_venv(venv_src)
         local_python = os.path.join(venv_path, 'bin', 'python')
@@ -385,7 +318,7 @@ class Builder(object):
         data_dir = os.path.join(scratchpad, 'data')
         os.makedirs(data_dir)
 
-        self.install_venv_deps(venv_src, wheel_src, data_dir)
+        self.install_venv_deps(venv_src, data_dir)
         self.build_wheels(venv_path, data_dir)
         self.put_installer(scratchpad, pkginfo)
         self.put_meta_info(scratchpad, pkginfo)
