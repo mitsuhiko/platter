@@ -73,13 +73,14 @@ fi
 
 HERE="$(cd "$(dirname "$0")"; pwd)"
 DATA_DIR="$HERE/data"
-VIRTUAL_ENV="$1"
 
 # Ensure Python exists
 command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)"
 
 echo 'Setting up virtualenv'
-"$py" "$DATA_DIR/virtualenv.py" "$VIRTUAL_ENV"
+"$py" "$DATA_DIR/virtualenv.py" "$1"
+VIRTUAL_ENV="$(cd "$1"; pwd)"
+
 echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
   --find-links "$DATA_DIR" wheel "%(pkg)s" | grep -v '^$'
@@ -325,15 +326,20 @@ class Builder(object):
         . "%(venv)s/bin/activate"
         export HERE="%(here)s"
         export DATA_DIR="%(here)s/data"
-        %(script)s "%(path)s"
+        export SOURCE_DIR="%(path)s"
+        export SCRATCHPAD="%(scratchpad)s"
+        %(script)s
         ''' % {
             'venv': venv_path,
             'script': os.path.abspath(postbuild_script),
             'path': self.path,
             'here': scratchpad,
+            'scratchpad': self.make_scratchpad('postbuild'),
         }
+        env = dict(os.environ)
+        env['INSTALL_SCRIPT'] = install_script_path
         c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
-                             env={'INSTALL_SCRIPT': install_script_path})
+                             env=env)
         c.communicate(script)
         if c.wait() != 0:
             raise click.UsageError('Build script failed :(')
