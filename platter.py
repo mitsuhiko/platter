@@ -85,7 +85,8 @@ command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)
 echo 'Setting up virtualenv'
 "$py" "$data_dir/virtualenv.py" "$venv"
 echo "Installing %(name)s"
-"$venv/bin/pip" -q install --pre --no-index --find-links "$data_dir" wheel "%(pkg)s"
+"$venv/bin/pip" install --pre --no-index \
+  --find-links "$data_dir" wheel "%(pkg)s" | grep -v '^$'
 echo "Done."
 '''
 
