@@ -71,18 +71,21 @@ if [ "$1" == "" ]; then
   param_error "destination argument is required"
 fi
 
-here="$(cd "$(dirname "$0")"; pwd)"
-data_dir="$here/data"
-venv="$1"
+HERE="$(cd "$(dirname "$0")"; pwd)"
+DATA_DIR="$HERE/data"
+VIRTUAL_ENV="$1"
 
 # Ensure Python exists
 command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)"
 
 echo 'Setting up virtualenv'
-"$py" "$data_dir/virtualenv.py" "$venv"
+"$py" "$DATA_DIR/virtualenv.py" "$VIRTUAL_ENV"
 echo "Installing %(name)s"
-"$venv/bin/pip" install --pre --no-index \
-  --find-links "$data_dir" wheel "%(pkg)s" | grep -v '^$'
+"$VIRTUAL_ENV/bin/pip" install --pre --no-index \
+  --find-links "$DATA_DIR" wheel "%(pkg)s" | grep -v '^$'
+
+%(postinstall)s
+
 echo "Done."
 '''
 
@@ -212,13 +215,18 @@ class Builder(object):
                      [make_spec('wheel', self.wheel_version)])
         return scratchpad
 
-    def put_installer(self, scratchpad, pkginfo):
+    def put_installer(self, scratchpad, pkginfo, install_script_path):
         fn = os.path.join(scratchpad, 'install.sh')
+
+        with open(install_script_path) as f:
+            postinstall = f.read().rstrip().decode('utf-8')
+
         with open(fn, 'w') as f:
             f.write((INSTALLER % dict(
                 name=pkginfo['ident'],
                 pkg=pkginfo['name'],
                 python=os.path.basename(self.python),
+                postinstall=postinstall,
             )).encode('utf-8'))
         os.chmod(fn, 0100755)
 
@@ -307,7 +315,28 @@ class Builder(object):
 
         return scratchpad
 
-    def build(self, format):
+    def run_postbuild_script(self, scratchpad, venv_path,
+                             postbuild_script, install_script_path):
+        log('postbuild', 'Invoking build script {}', postbuild_script)
+
+        script = '''
+        . "%(venv)s/bin/activate"
+        export HERE="%(here)s"
+        export DATA_DIR="%(here)s/data"
+        %(script)s "%(path)s"
+        ''' % {
+            'venv': venv_path,
+            'script': os.path.abspath(postbuild_script),
+            'path': self.path,
+            'here': scratchpad,
+        }
+        c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
+                             env={'INSTALL_SCRIPT': install_script_path})
+        c.communicate(script)
+        if c.wait() != 0:
+            raise click.UsageError('Build script failed :(')
+
+    def build(self, format, postbuild_script=None):
         if not os.path.isdir(self.path):
             raise click.UsageError('The project path (%s) does not exist'
                                    % self.path)
@@ -327,9 +356,16 @@ class Builder(object):
 
         self.install_venv_deps(venv_src, data_dir)
         self.build_wheels(venv_path, data_dir)
-        self.put_installer(scratchpad, pkginfo)
         self.put_meta_info(scratchpad, pkginfo)
 
+        install_script_path = os.path.join(venv_path, 'install_script')
+        open(install_script_path, 'a').close()
+        if postbuild_script is not None:
+            self.run_postbuild_script(scratchpad, venv_path, postbuild_script,
+                                  install_script_path)
+
+        self.put_installer(scratchpad, pkginfo,
+                           install_script_path)
         self.create_archive(scratchpad, pkginfo, format)
 
 
@@ -372,10 +408,21 @@ def cli():
               help='The format of the resulting build artifact as file '
               'extension.  Supported formats: ' + ', '.join(FORMATS),
               show_default=True, metavar='EXTENSION')
+@click.option('--postbuild-script', type=click.Path(),
+              help='Path to an optional build script that is invoked in '
+              'the build folder as last step with the path to the source '
+              'path as first argument.  This can be used to inject '
+              'additional data into the archive.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
-              format, pip_option):
+              format, pip_option, postbuild_script):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
+
+    Generally this works by building the provided package into a wheel file
+    and a wheel for each of the dependencies.  The resulting artifacts are
+    augmented with a virtualenv bootstrapper and an install script and then
+    archived.  Optionally a post build script can be provided that can place
+    more files in the archive and also provide more install steps.
     """
     if path is None:
         path = find_closest_package()
@@ -385,7 +432,7 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version,
                  pip_options=list(pip_option)) as builder:
-        builder.build(format)
+        builder.build(format, postbuild_script=postbuild_script)
 
 
 @cli.command('cleanup')
