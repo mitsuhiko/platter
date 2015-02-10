@@ -14,7 +14,7 @@ FORMATS = ['tar.gz', 'tar.bz2', 'tar', 'zip', 'dir']
 PACKAGE_JSON_URL = 'https://pypi.python.org/pypi/%s/json'
 SUPPORTED_ARCHIVES = ('.tar.gz', '.tar', '.zip')
 INSTALLER = '''\
-#!/bin/sh
+#!/bin/bash
 # This script installs the bundled wheel distribution of %(name)s into
 # a provided path where it will end up in a new virtualenv.
 
