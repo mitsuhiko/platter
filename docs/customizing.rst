@@ -32,7 +32,8 @@ this is automatically discovered by default.  It can however be explicitly
 provided on the command line in case you encounter a bug with the current
 version or the upgrade is incompatible with what you expect::
 
-    $ platter build --virtualenv-version VER --wheel-version VER ./package
+    $ platter build --virtualenv-version VER ./package
+    $ platter build --wheel-version VER ./package
 
 Specifying Python Interpreter
 -----------------------------
