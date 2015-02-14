@@ -1,4 +1,4 @@
-Welcome to the Platter Documentation
+Platter
 ====================================
 
 Platter is a utility for Python that simplifies deployments on Unix
@@ -8,20 +8,24 @@ servers.
 
 You can get the tool directly from PyPI::
 
-    pip install platter
-
-Or if you have `pipsi <https://github.com/mitsuhiko/pipsi>`_ you can
-install it that way as well::
-
-    pipsi install platter
+    $ pip install platter
 
 To create a platter distribution all you need is this::
 
-    platter build /path/to/your/python/package
+    $ platter build /path/to/your/python/package
 
-And you're good to go.
+Once this finishes, it will have created a tarball of the fully built
+Python package together will all dependencies and an installation script.
+You can then take this package and push it to as many servers as you want
+and install it::
 
-Contents:
+    $ tar -xzf package-VERSION-linux-x86_64.tar.gz
+    $ cd package-VERSION-linux-x86_64
+    $ ./install.sh /srv/yourpackage/versions/VERSION
+    $ ln -sf /srv/yourpackage/versions/VERSION /srv/yourpackage/versions/current
+
+Documentation Contents
+----------------------
 
 .. toctree::
    :maxdepth: 2
