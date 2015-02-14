@@ -32,4 +32,5 @@ Documentation Contents
 
    why
    quickstart
+   customizing
    automation
