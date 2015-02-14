@@ -1,0 +1,3 @@
+.. currentmodule:: platter
+
+.. include:: ../CHANGES

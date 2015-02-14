@@ -34,3 +34,12 @@ Documentation Contents
    quickstart
    customizing
    automation
+
+Miscellaneous Pages
+-------------------
+
+.. toctree::
+   :maxdepth: 2
+
+   changelog
+   license
