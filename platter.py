@@ -81,9 +81,14 @@ echo 'Setting up virtualenv'
 "$py" "$DATA_DIR/virtualenv.py" "$1"
 VIRTUAL_ENV="$(cd "$1"; pwd)"
 
+INSTALL_ARGS=''
+if [ -f "$DATA_DIR/requirements.txt" ]; then
+  INSTALL_ARGS="$INSTALL_ARGS"\ -r\ "$DATA_DIR/requirements.txt"
+fi
+
 echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
-  --find-links "$DATA_DIR" wheel "%(pkg)s" | grep -v '^$'
+  --find-links "$DATA_DIR" wheel $INSTALL_ARGS %(pkg)s | grep -v '^$'
 
 # Potential post installation
 cd "$HERE"
@@ -115,7 +120,7 @@ def make_spec(pkg, version=None):
 
 def log(category, message, *args, **kwargs):
     click.echo('%s: %s' % (
-        click.style(category.rjust(10), fg='cyan'),
+        click.style(category.rjust(14), fg='cyan'),
         message.replace('{}', click.style('{}', fg='yellow')).format(
             *args, **kwargs),
     ))
@@ -136,7 +141,8 @@ def find_closest_package():
 class Builder(object):
 
     def __init__(self, path, output, python=None, virtualenv_version=None,
-                 wheel_version=None, pip_options=None):
+                 wheel_version=None, pip_options=None,
+                 wheel_cache=None, requirements=None):
         self.path = os.path.abspath(path)
         self.output = output
         if python is None:
@@ -144,6 +150,12 @@ class Builder(object):
         self.python = python
         self.virtualenv_version = virtualenv_version
         self.wheel_version = wheel_version
+        if wheel_cache is not None:
+            wheel_cache = os.path.abspath(wheel_cache)
+        self.wheel_cache = wheel_cache
+        if requirements is not None:
+            requirements = os.path.abspath(requirements)
+        self.requirements = requirements
         self.pip_options = list(pip_options or ())
         self.scratchpads = []
 
@@ -216,9 +228,20 @@ class Builder(object):
 
         self.execute(pip, ['install', '--download', data_dir] + self.pip_options
                      + [make_spec('wheel', self.wheel_version)])
-        self.execute(os.path.join(venv_path, 'bin', 'pip'),
-                     ['wheel', '--wheel-dir=' + data_dir]
-                     + self.pip_options + [self.path])
+
+        cmdline = ['wheel', '--wheel-dir=' + data_dir]
+        cmdline.extend(self.pip_options)
+        if self.wheel_cache and os.path.isdir(self.wheel_cache):
+            cmdline.extend(('-f', self.wheel_cache))
+
+        if self.requirements is not None:
+            cmdline.extend(('-r', self.requirements))
+            shutil.copy2(self.requirements,
+                         os.path.join(data_dir, 'requirements.txt'))
+
+        cmdline.append(self.path)
+
+        self.execute(os.path.join(venv_path, 'bin', 'pip'), cmdline)
 
     def setup_build_venv(self, virtualenv):
         scratchpad = self.make_scratchpad('venv')
@@ -356,6 +379,21 @@ class Builder(object):
         if c.wait() != 0:
             raise click.UsageError('Build script failed :(')
 
+    def update_wheel_cache(self, wheelhouse):
+        try:
+            os.makedirs(self.wheel_cache)
+        except OSError:
+            pass
+
+        for filename in os.listdir(wheelhouse):
+            if filename[:1] == '.' or not filename.endswith('.whl'):
+                continue
+            if os.path.isfile(os.path.join(self.wheel_cache, filename)):
+                continue
+            log('wheel-cache', 'Caching {} for future use', filename)
+            shutil.copy2(os.path.join(wheelhouse, filename),
+                         os.path.join(self.wheel_cache, filename))
+
     def build(self, format, postbuild_script=None):
         if not os.path.isdir(self.path):
             raise click.UsageError('The project path (%s) does not exist'
@@ -383,6 +421,9 @@ class Builder(object):
         if postbuild_script is not None:
             self.run_postbuild_script(scratchpad, venv_path, postbuild_script,
                                   install_script_path)
+
+        if self.wheel_cache:
+            self.update_wheel_cache(data_dir)
 
         self.put_installer(scratchpad, pkginfo,
                            install_script_path)
@@ -433,8 +474,18 @@ def cli():
               'the build folder as last step with the path to the source '
               'path as first argument.  This can be used to inject '
               'additional data into the archive.')
+@click.option('--wheel-cache', type=click.Path(),
+              help='An optional folder where platter should cache wheels.  If '
+              'provided this will speed up future compiles because already '
+              'created wheels will not be compiled again.')
+@click.option('-r', '--requirements', type=click.Path(),
+              help='Optionally the path to a requirements file which contains '
+              'additional packages that should be installed in addition to '
+              'the main one.  This can be useful when you need to pull in '
+              'optional dependencies.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
-              format, pip_option, postbuild_script):
+              format, pip_option, postbuild_script, wheel_cache,
+              requirements):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
 
@@ -451,7 +502,9 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
     with Builder(path, output, python=python,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version,
-                 pip_options=list(pip_option)) as builder:
+                 pip_options=list(pip_option),
+                 wheel_cache=wheel_cache,
+                 requirements=requirements) as builder:
         builder.build(format, postbuild_script=postbuild_script)
 
 
