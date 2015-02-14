@@ -22,7 +22,7 @@ and install it::
     $ tar -xzf package-VERSION-linux-x86_64.tar.gz
     $ cd package-VERSION-linux-x86_64
     $ ./install.sh /srv/yourpackage/versions/VERSION
-    $ ln -sf /srv/yourpackage/versions/VERSION /srv/yourpackage/versions/current
+    $ ln -sf VERSION /srv/yourpackage/versions/current
 
 Documentation Contents
 ----------------------
