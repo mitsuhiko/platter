@@ -91,25 +91,25 @@ Here an example `fabfile.py` which can upload a package to hosts::
                 sorted(os.path.listdir('dist'))[-1])
 
         # Uplaod the archive and make some temporary space in /tmp
-        put(filename, '/tmp/yourpackage.tar.gz')
-        run('rm -rf /tmp/yourpackage && mkdir -p /tmp/yourpackage')
+        put(filename, '/tmp/yourapp.tar.gz')
+        run('rm -rf /tmp/yourapp && mkdir -p /tmp/yourapp')
 
         # Now enter the temporary folder
-        with cd('/tmp/yourpackage'):
+        with cd('/tmp/yourapp'):
             # Extract the archive, throwing away the toplevel folder
-            run('tar --strip-components=1 -xzf /tmp/yourpackage.tar.gz')
+            run('tar --strip-components=1 -xzf /tmp/yourapp.tar.gz')
 
             # Ask for the version
             version = str(run('cat VERSION'))
 
             # Install into a version specific directory
-            run('./install.sh /srv/yourpackage/versions/%s' % version)
+            run('./install.sh /srv/yourapp/versions/%s' % version)
 
             # Create a symlink for the current version
-            run('ln -sf %s /srv/yourpackage/versions/current' % version)
+            run('ln -sf %s /srv/yourapp/versions/current' % version)
 
         # Clean up the mess
-        run('rm -rf /tmp/yourpackage /tmp/yourpackage.tar.gz')
+        run('rm -rf /tmp/yourapp /tmp/yourapp.tar.gz')
 
 You can then deploy an archive trivially::
 
