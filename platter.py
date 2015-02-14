@@ -87,6 +87,7 @@ echo "Installing %(name)s"
 
 # Potential post installation
 cd "$HERE"
+. "$VIRTUAL_ENV/bin/activate"
 %(postinstall)s
 
 echo "Done."

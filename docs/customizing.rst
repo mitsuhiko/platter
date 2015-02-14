@@ -35,11 +35,94 @@ version or the upgrade is incompatible with what you expect::
     $ platter build --virtualenv-version VER ./package
     $ platter build --wheel-version VER ./package
 
-Specifying Python Interpreter
------------------------------
+Specifying The Python Interpreter
+---------------------------------
 
 By default the interpreter that is used in the virtualenv of platter is
 used.  If you want to build for a different version (for example Python 3)
 you can provide it explicitly::
 
     $ platter build -p python3.4 ./package
+
+Passing pip Options
+-------------------
+
+By default pip will execute without any extra arguments when building
+wheels.  There are two ways to pass extra arguments to pip.  The first is
+to set environment variables.  These will also be used by the pip process
+that platter launches.  The second option is to pass them on the command
+line.  For instance if you want to change the pip cache you can use this
+command::
+
+    $ platter build --pip-option='--cache-dir=.cache' ./package
+
+Custom Post-Build Scripts
+-------------------------
+
+While platter is perfectly capable of creating Python distributions, it
+might encounter problems if you also want to ship other things with your
+application that are not native to the Python ecosystem.  A good example
+for this is your application also wants to install some node-js modules
+into the virtualenv for instance.
+
+In this case you can provide a custom post-build script that is executed
+after the regular build and before packaging up.  It can add additional
+data to the archive and also emit commands that end up in the install
+script.
+
+The script needs to be executable and is invoked with some environment
+variables.  The following environment variables exist:
+
+=================== ===================================================
+Variable            Description
+=================== ===================================================
+``HERE``            The path of the root folder in the archive.  This
+                    is the folder where the install script ends up in
+                    and the parent folder of the data directory.  This
+                    is where you can place additional metadata for
+                    instance.  This is also guarnateed to be the
+                    working directory of the script.
+``DATA_DIR``        The path of the bundled ``data`` folder in the
+                    archive.  This is useful when you want to add more
+                    data into the data directory.
+``SOURCE_DIR``      The path of the source directory.  This is the
+                    directory of the Python package (the parent folder
+                    of the ``setup.py`` file).
+``SCRATCHPAD``      A temporary folder provided for the script which
+                    is deleted after the execution.  This is useful
+                    when you need to temporarily create files.
+``INSTALL_SCRIPT``  The path to a auxilary installation script.  You
+                    can echo install commands to this path and they
+                    are added to ``install.sh`` automatically.
+``VIRTUAL_ENV``     The path to the virtual env that has been used for
+                    building the package.  This can come in useful
+                    when you need to start a python interpreter or
+                    launch an executable in the venv.  Note that the
+                    virtualenv is also guarnateed to be active.
+=================== ===================================================
+
+The variables ``HERE``, ``DATA_DIR`` and ``VIRTUAL_ENV`` are also
+available in the install script.
+
+The build script can be provided to the build command with the
+``--postbuild-script`` parameter::
+
+    $ platter build --postbuild-script=build.sh ./package
+
+An example build script that ships a ``npm`` module in the virtualenv can
+look like this:
+
+.. sourcecode:: bash
+
+    #!/bin/bash
+    set -eu
+
+    (cd $DATA_DIR; npm install --production uglify-js)
+
+    cat << "EOF" >> "$INSTALL_SCRIPT"
+    cp -R "$DATA_DIR/node_modules" "$VIRTUAL_ENV"
+    ln -s "../node_modules/.bin/uglifyjs" "$VIRTUAL_ENV/bin"
+    EOF
+
+This will install a node executable into the virtualenv and then link the
+executable into the virtualenv's bin folder.
