@@ -93,6 +93,17 @@ echo "Done."
 '''
 
 
+def find_exe(name):
+    """Finds an executable first in the virtualenv if available, otherwise
+    falls back to the global name.
+    """
+    if hasattr(sys, 'real_prefix'):
+        path = os.path.join(sys.prefix, 'bin', name)
+        if os.path.isfile(path):
+            return path
+    return name
+
+
 def make_spec(pkg, version=None):
     if version is None:
         return pkg
@@ -294,7 +305,7 @@ class Builder(object):
 
     def extract_virtualenv(self):
         scratchpad = self.make_scratchpad('venv-tmp')
-        self.execute('pip', ['install', '--download', scratchpad] +
+        self.execute(find_exe('pip'), ['install', '--download', scratchpad] +
                      self.pip_options +
                      [make_spec('virtualenv', self.virtualenv_version)])
 
