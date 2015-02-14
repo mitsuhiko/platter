@@ -1,5 +1,5 @@
 Platter
-====================================
+=======
 
 Platter is a utility for Python that simplifies deployments on Unix
 servers.  It's a thin wrapper around pip, virtualenv and wheel and aids in

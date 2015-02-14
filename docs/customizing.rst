@@ -56,6 +56,20 @@ command::
 
     $ platter build --pip-option='--cache-dir=.cache' ./package
 
+Extra Requirements
+------------------
+
+By default the dependencies are pulled from the ``setup.py`` file.  In
+some circumstances it is a good idea to define extra dependencies in a
+requirements file.  This is useful for instance if you have optional
+dependencies like database drivers that only apply for the production
+deployment but are not a strict requirement for the package itself.
+
+In that case the ``--requirements`` (or ``-r``) flag comes in useful.  It
+can point to a requirements file::
+
+    $ platter build -r requirements.txt ./package
+
 Custom Post-Build Scripts
 -------------------------
 
@@ -130,3 +144,21 @@ executable into the virtualenv's bin folder.  What's piped into the
 Note that the double quoting of ``EOF`` (``"EOF"``) disables the
 interpolation so the variables are expanded at installation time, not at
 build time!
+
+Enabling Wheel Caches
+---------------------
+
+The default behavior of platter is to not cache wheels.  The main reason
+for this is that wheels do not carry enough information so that they can
+be distinguished in all cases.  This does not cause a problem for most
+users, but it can for some.  For instance UC2 and UC4 builds of the same
+Python version are incompatible.
+
+However wheel caching can be enabled.  In that case, after the second time
+you create a platter distribution of the same dependency, platter will not
+recompile a wheel it has already seen before.
+
+To enable this feature, you can pass ``--wheel-cache`` to the build
+command::
+
+    $ platter build --wheel-cache=/tmp/wheelhouse ./package
