@@ -8,6 +8,10 @@ deployment scenarios and by providing the highest amount of stability
 possible.  Changes to the Python packaging infrastructure will not affect
 platter based deployments.
 
+Platter also places a lot of emphasis on automation.  Both the build and
+the installation process provides a lot of helpers for automatic usage
+through assisting tools.
+
 Platter Operation
 -----------------
 
