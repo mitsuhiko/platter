@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='platter',
-    version='0.1-dev',
+    version='1.0-dev',
     url='http://github.com/mitsuhiko/platter/',
     license='BSD',
     author='Armin Ronacher',
