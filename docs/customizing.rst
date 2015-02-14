@@ -117,7 +117,7 @@ look like this:
     #!/bin/bash
     set -eu
 
-    (cd $DATA_DIR; npm install --production uglify-js)
+    (cd "$DATA_DIR"; npm install --production uglify-js)
 
     cat << "EOF" >> "$INSTALL_SCRIPT"
     cp -R "$DATA_DIR/node_modules" "$VIRTUAL_ENV"
@@ -125,4 +125,8 @@ look like this:
     EOF
 
 This will install a node executable into the virtualenv and then link the
-executable into the virtualenv's bin folder.
+executable into the virtualenv's bin folder.  What's piped into the
+``$INSTALL_SCRIPT`` is added as commands to the ``install.sh`` script.
+Note that the double quoting of ``EOF`` (``"EOF"``) disables the
+interpolation so the variables are expanded at installation time, not at
+build time!
