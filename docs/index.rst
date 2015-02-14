@@ -31,3 +31,5 @@ Documentation Contents
    :maxdepth: 2
 
    why
+   quickstart
+   automation
