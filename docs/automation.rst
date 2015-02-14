@@ -29,7 +29,7 @@ something like this::
     def build(rev='HEAD'):
         # ask git to create an archive for the right version.
         tmp = tempfile.mktemp(suffix='.tar.gz')
-        local('git archive --format=tar "%s" | gzip > "%s"' % (rev, tmp))
+        local('git archive "%s" | gzip > "%s"' % (rev, tmp))
 
         # upload that archive to a temporary folder
         buildtmp = '/tmp/build-%s' % os.urandom(20).encode('hex')
@@ -85,9 +85,10 @@ Here an example `fabfile.py` which can upload a package to hosts::
 
     @task
     def deploy(archive=None):
-        # If not archive is provided, we use the 'last' one in the dist dir
+        # If not archive is provided, we use the 'last' one
         if archive is None:
-            archive = os.path.join('dist', sorted(os.path.listdir('dist'))[-1])
+            archive = os.path.join('dist',
+                sorted(os.path.listdir('dist'))[-1])
 
         # Uplaod the archive and make some temporary space in /tmp
         put(filename, '/tmp/yourpackage.tar.gz')
@@ -112,4 +113,4 @@ Here an example `fabfile.py` which can upload a package to hosts::
 
 You can then deploy an archive trivially::
 
-    $ fab -H myserver deploy:archive=dist/yourpackage-VERSION-linux-x86_64.tar.gz
+    $ fab -H myserver deploy
