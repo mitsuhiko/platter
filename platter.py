@@ -191,7 +191,8 @@ class Builder(object):
 
     def __init__(self, log, path, output, python=None,
                  virtualenv_version=None, wheel_version=None,
-                 pip_options=None, wheel_cache=None, requirements=None):
+                 pip_options=None, no_download=None, wheel_cache=None,
+                 requirements=None):
         self.log = log
         self.path = os.path.abspath(path)
         self.output = output
@@ -206,8 +207,17 @@ class Builder(object):
         if requirements is not None:
             requirements = os.path.abspath(requirements)
         self.requirements = requirements
+        self.no_download = no_download
         self.pip_options = list(pip_options or ())
         self.scratchpads = []
+
+    def get_pip_options(self):
+        rv = self.pip_options
+        if self.wheel_cache and os.path.isdir(self.wheel_cache):
+            rv = rv + ['-f', self.wheel_cache]
+        if self.no_download:
+            rv = rv + ['--no-index']
+        return rv
 
     def __enter__(self):
         return self
@@ -291,13 +301,11 @@ class Builder(object):
 
         with self.log.indented():
             self.execute(pip, ['install', '--download', data_dir] +
-                         self.pip_options +
+                         self.get_pip_options() +
                          [make_spec('wheel', self.wheel_version)])
 
             cmdline = ['wheel', '--wheel-dir=' + data_dir]
-            cmdline.extend(self.pip_options)
-            if self.wheel_cache and os.path.isdir(self.wheel_cache):
-                cmdline.extend(('-f', self.wheel_cache))
+            cmdline.extend(self.get_pip_options())
 
             if self.requirements is not None:
                 cmdline.extend(('-r', self.requirements))
@@ -316,7 +324,7 @@ class Builder(object):
                          [os.path.join(virtualenv, 'virtualenv.py'),
                           scratchpad])
             self.execute(os.path.join(scratchpad, 'bin', 'pip'),
-                         ['install'] + self.pip_options +
+                         ['install'] + self.get_pip_options() +
                          [make_spec('wheel', self.wheel_version)])
         return scratchpad
 
@@ -401,7 +409,7 @@ class Builder(object):
         with self.log.indented():
             scratchpad = self.make_scratchpad('venv-tmp')
             self.execute(find_exe('pip'), ['install', '--download', scratchpad] +
-                         self.pip_options +
+                         self.get_pip_options() +
                          [make_spec('virtualenv', self.virtualenv_version)])
 
             artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
@@ -411,7 +419,6 @@ class Builder(object):
                 f = tarfile.open(artifact)
             f.extractall(scratchpad)
             f.close()
-            os.remove(artifact)
 
         # We need to detect if we contain a single artifact that is a
         # folder in which case we need to use that.  Wheels for instance
@@ -420,9 +427,9 @@ class Builder(object):
         if len(artifacts) == 1:
             rv = os.path.join(scratchpad, artifacts[0])
             if os.path.isdir(rv):
-                return rv
+                return rv, artifact
 
-        return scratchpad
+        return scratchpad, artifact
 
     def run_postbuild_script(self, scratchpad, venv_path,
                              postbuild_script, install_script_path):
@@ -451,8 +458,16 @@ class Builder(object):
                 self.log.error('Build script failed :(')
                 raise click.Abort()
 
-    def update_wheel_cache(self, wheelhouse):
+    def update_wheel_cache(self, wheelhouse, venv_artifact):
         self.log.info('Updating wheel cache')
+
+        def _place(filename):
+            basename = os.path.basename(filename)
+            if os.path.isfile(os.path.join(self.wheel_cache, basename)):
+                return
+            self.log.info('Caching {} for future use', basename)
+            shutil.copy2(filename, os.path.join(self.wheel_cache, basename))
+
         with self.log.indented():
             try:
                 os.makedirs(self.wheel_cache)
@@ -462,11 +477,8 @@ class Builder(object):
             for filename in os.listdir(wheelhouse):
                 if filename[:1] == '.' or not filename.endswith('.whl'):
                     continue
-                if os.path.isfile(os.path.join(self.wheel_cache, filename)):
-                    continue
-                self.log.info('Caching {} for future use', filename)
-                shutil.copy2(os.path.join(wheelhouse, filename),
-                             os.path.join(self.wheel_cache, filename))
+                _place(os.path.join(wheelhouse, filename))
+            _place(venv_artifact)
 
     def finalize(self, artifact):
         self.log.info('Done.')
@@ -493,7 +505,7 @@ class Builder(object):
             raise click.UsageError('The project path (%s) does not exist'
                                    % self.path)
 
-        venv_src = self.extract_virtualenv()
+        venv_src, venv_artifact = self.extract_virtualenv()
 
         venv_path = self.setup_build_venv(venv_src)
         local_python = os.path.join(venv_path, 'bin', 'python')
@@ -519,7 +531,7 @@ class Builder(object):
                                   install_script_path)
 
         if self.wheel_cache:
-            self.update_wheel_cache(data_dir)
+            self.update_wheel_cache(data_dir, venv_artifact)
 
         self.put_installer(scratchpad, pkginfo,
                            install_script_path)
@@ -581,6 +593,12 @@ def cli():
               'a wheel cache you can pass the --no-wheel-cache flag.')
 @click.option('--no-wheel-cache', is_flag=True,
               help='Disables the wheel cache entirely.')
+@click.option('--no-download', is_flag=True,
+              help='Disables the downloading of all dependencies entirely. '
+              'This will only work if all dependencies have been previously '
+              'cached.  This is primarily useful when you are temporarily '
+              'disconnected from the internet because it will disable useless '
+              'network roundtrips.')
 @click.option('-r', '--requirements', type=click.Path(),
               help='Optionally the path to a requirements file which contains '
               'additional packages that should be installed in addition to '
@@ -588,7 +606,7 @@ def cli():
               'optional dependencies.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
               format, pip_option, postbuild_script, wheel_cache,
-              no_wheel_cache, requirements):
+              no_wheel_cache, no_download, requirements):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
 
@@ -604,6 +622,9 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
     log.info('Using package from {}', path)
 
     if no_wheel_cache:
+        if no_download:
+            raise click.UsageError('--no-download and --no-cache cannot '
+                                   'be used together.')
         wheel_cache = None
     elif wheel_cache is None:
         wheel_cache = get_default_wheel_cache()
@@ -614,6 +635,7 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version,
                  pip_options=list(pip_option),
+                 no_download=no_download,
                  wheel_cache=wheel_cache,
                  requirements=requirements) as builder:
         builder.build(format, postbuild_script=postbuild_script)
@@ -633,7 +655,7 @@ def clean_cache_cmd():
     with log.indented():
         if os.path.isdir(wheel_cache):
             for fn in os.listdir(wheel_cache):
-                if fn.endswith('.whl'):
+                if os.path.isfile(os.path.join(wheel_cache, fn)):
                     try:
                         log.info('Removing', fn)
                         os.remove(os.path.join(wheel_cache, fn))
