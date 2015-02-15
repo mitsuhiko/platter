@@ -46,6 +46,7 @@ Documentation Contents
    quickstart
    customizing
    automation
+   faq
 
 Miscellaneous Pages
 -------------------
