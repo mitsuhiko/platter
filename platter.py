@@ -567,6 +567,7 @@ class Builder(object):
 @click.group(context_settings={
     'auto_envvar_prefix': 'PLATTER'
 })
+@click.version_option()
 def cli():
     """Platter packages up a Python package into a tarball that can install
     into a local virtualenv through a bundled install script.  The only
