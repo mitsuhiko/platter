@@ -3,7 +3,9 @@ import sys
 import json
 import time
 import click
+import errno
 import shutil
+import select
 import tarfile
 import zipfile
 import hashlib
@@ -120,8 +122,21 @@ class Log(object):
         return self.info('Error: ' + click.style(fmt, fg='red'),
                          *args, **kwargs)
 
-    def output(self, line):
-        return self.info(click.style(line, fg='cyan'))
+    def process_stream_output(self, process):
+        fds = set([process.stdout, process.stderr])
+        while fds:
+            for f in select.select(fds, [], [])[0]:
+                try:
+                    line = f.readline()
+                    if not line:
+                        fds.discard(f)
+                        continue
+                except OSError as e:
+                    if e.errno != errno.EINTR:
+                        raise
+                else:
+                    color = f == process.stdout and 'cyan' or 'yellow'
+                    self.info(click.style(line.rstrip(), fg=color))
 
     @contextmanager
     def indented(self):
@@ -237,18 +252,14 @@ class Builder(object):
         cmdline.extend(args or ())
         self.log.info('Executing {}', ' '.join(map(autoquote, cmdline)))
         with self.log.indented():
-            kwargs = {}
-            kwargs['stdout'] = subprocess.PIPE
-            cl = subprocess.Popen(cmdline, cwd=self.path, **kwargs)
+            cl = subprocess.Popen(cmdline, cwd=self.path,
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
             if capture:
                 rv = cl.communicate()[0]
             else:
                 rv = None
-                while 1:
-                    line = cl.stdout.readline()
-                    if not line:
-                        break
-                    self.log.output(line.rstrip())
+                self.log.process_stream_output(cl)
 
             if cl.wait() != 0:
                 self.log.error('Failed to execute command "%s"' % cmd)
@@ -452,9 +463,14 @@ class Builder(object):
             }
             env = dict(os.environ)
             env['INSTALL_SCRIPT'] = install_script_path
-            c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
-                                 env=env)
-            c.communicate(script)
+            c = subprocess.Popen(['sh'], env=env, stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,
+                                 cwd=scratchpad)
+            c.stdin.write(script)
+            c.stdin.flush()
+            c.stdin.close()
+            self.log.process_stream_output(c)
             if c.wait() != 0:
                 self.log.error('Build script failed :(')
                 raise click.Abort()
