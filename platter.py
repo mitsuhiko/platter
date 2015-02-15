@@ -5,11 +5,14 @@ import click
 import shutil
 import tarfile
 import zipfile
+import hashlib
 import tempfile
 import sysconfig
 import subprocess
+from contextlib import contextmanager
 
 
+WIN = sys.platform.startswith('win')
 FORMATS = ['tar.gz', 'tar.bz2', 'tar', 'zip', 'dir']
 INSTALLER = '''\
 #!/bin/bash
@@ -97,6 +100,43 @@ echo "Done."
 '''
 
 
+class Log(object):
+
+    def __init__(self):
+        self.indentation = 0
+
+    def indent(self):
+        self.indentation += 1
+
+    def outdent(self):
+        self.indentation -= 1
+
+    def info(self, fmt, *args, **kwargs):
+        prefix = '  ' * self.indentation
+        click.echo(prefix + fmt.format(*args, **kwargs))
+
+    def error(self, fmt, *args, **kwargs):
+        return self.info('Error: ' + click.style(fmt, fg='red'),
+                         *args, **kwargs)
+
+    def output(self, line):
+        return self.info(click.style(line, fg='cyan'))
+
+    @contextmanager
+    def indented(self):
+        self.indent()
+        try:
+            yield
+        finally:
+            self.outdent()
+
+
+def autoquote(arg):
+    if arg.strip() not in (arg, '') or arg.split()[0] != arg or '"' in arg:
+        arg = '"%s"' % arg.replace('\\', '\\\\').replace('"', '\\"')
+    return arg
+
+
 def find_exe(name):
     """Finds an executable first in the virtualenv if available, otherwise
     falls back to the global name.
@@ -116,14 +156,6 @@ def make_spec(pkg, version=None):
     return '%s==%s' % (pkg, version)
 
 
-def log(category, message, *args, **kwargs):
-    click.echo('%s: %s' % (
-        click.style(category.rjust(14), fg='cyan'),
-        message.replace('{}', click.style('{}', fg='yellow')).format(
-            *args, **kwargs),
-    ))
-
-
 def find_closest_package():
     node = os.getcwd()
     while 1:
@@ -136,11 +168,31 @@ def find_closest_package():
     raise click.UsageError('Cannot discover package, you need to be explicit.')
 
 
+def get_cache_dir(app_name):
+    if WIN:
+        folder = os.environ.get('LOCALAPPDATA')
+        if folder is None:
+            folder = os.path.expanduser('~')
+            app_name = '.' + app_name
+        return os.path.join(folder, app_name, 'Cache')
+    if sys.platform == 'darwin':
+        return os.path.join(os.path.expanduser(
+            '~/Library/Caches'), app_name)
+    return os.path.join(
+        os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.cache')),
+        app_name)
+
+
+def get_default_wheel_cache():
+    return get_cache_dir('platter')
+
+
 class Builder(object):
 
-    def __init__(self, path, output, python=None, virtualenv_version=None,
-                 wheel_version=None, pip_options=None,
-                 wheel_cache=None, requirements=None):
+    def __init__(self, log, path, output, python=None,
+                 virtualenv_version=None, wheel_version=None,
+                 pip_options=None, wheel_cache=None, requirements=None):
+        self.log = log
         self.path = os.path.abspath(path)
         self.output = output
         if python is None:
@@ -161,36 +213,49 @@ class Builder(object):
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
-        self.close()
+        self.cleanup()
 
     def make_scratchpad(self, name='generic'):
         sp = tempfile.mkdtemp(suffix='-' + name)
         self.scratchpads.append(sp)
-        log('builder', 'Created scratchpad in {}', sp)
+        self.log.info('Created scratchpad in {}', sp)
         return sp
 
     def execute(self, cmd, args=None, capture=False):
         cmdline = [cmd]
         cmdline.extend(args or ())
-        kwargs = {}
-        if capture:
+        self.log.info('Executing {}', ' '.join(map(autoquote, cmdline)))
+        with self.log.indented():
+            kwargs = {}
             kwargs['stdout'] = subprocess.PIPE
-        cl = subprocess.Popen(cmdline, cwd=self.path, **kwargs)
-        rv = cl.communicate()[0]
-        if cl.wait() != 0:
-            raise click.UsageError('Failed to execute command "%s"' % cmd)
-        return rv
+            cl = subprocess.Popen(cmdline, cwd=self.path, **kwargs)
+            if capture:
+                rv = cl.communicate()[0]
+            else:
+                rv = None
+                while 1:
+                    line = cl.stdout.readline()
+                    if not line:
+                        break
+                    self.log.output(line.rstrip())
 
-    def close(self):
-        for sp in reversed(self.scratchpads):
+            if cl.wait() != 0:
+                self.log.error('Failed to execute command "%s"' % cmd)
+                raise click.Abort()
+            return rv
+
+    def cleanup(self):
+        while self.scratchpads:
+            sp = self.scratchpads.pop()
             try:
-                log('builder', 'Cleaning up scratchpad in {}', sp)
+                self.log.info('Cleaning up scratchpad in {}', sp)
                 shutil.rmtree(sp)
             except (OSError, IOError):
                 pass
 
     def describe_package(self, python):
         # Do dummy invoke first to trigger setup requires.
+        self.log.info('Invoking dummy setup to trigger requirements.')
         self.execute(python, ['setup.py', '--version'], capture=True)
 
         rv = self.execute(python, [
@@ -209,8 +274,8 @@ class Builder(object):
             target = os.path.join(target, os.path.basename(filename))
         shutil.copy2(filename, target)
 
-    def install_venv_deps(self, venv_path, data_dir):
-        log('builder', 'Installing virtualenv dependencies')
+    def place_venv_deps(self, venv_path, data_dir):
+        self.log.info('Placing virtualenv dependencies')
         self.copy_file(os.path.join(venv_path, 'virtualenv.py'),
                        data_dir)
 
@@ -221,34 +286,38 @@ class Builder(object):
                 self.copy_file(os.path.join(support_path, filename), data_dir)
 
     def build_wheels(self, venv_path, data_dir):
-        log('builder', 'Building wheels')
+        self.log.info('Building wheels')
         pip = os.path.join(venv_path, 'bin', 'pip')
 
-        self.execute(pip, ['install', '--download', data_dir] + self.pip_options
-                     + [make_spec('wheel', self.wheel_version)])
+        with self.log.indented():
+            self.execute(pip, ['install', '--download', data_dir] +
+                         self.pip_options +
+                         [make_spec('wheel', self.wheel_version)])
 
-        cmdline = ['wheel', '--wheel-dir=' + data_dir]
-        cmdline.extend(self.pip_options)
-        if self.wheel_cache and os.path.isdir(self.wheel_cache):
-            cmdline.extend(('-f', self.wheel_cache))
+            cmdline = ['wheel', '--wheel-dir=' + data_dir]
+            cmdline.extend(self.pip_options)
+            if self.wheel_cache and os.path.isdir(self.wheel_cache):
+                cmdline.extend(('-f', self.wheel_cache))
 
-        if self.requirements is not None:
-            cmdline.extend(('-r', self.requirements))
-            shutil.copy2(self.requirements,
-                         os.path.join(data_dir, 'requirements.txt'))
+            if self.requirements is not None:
+                cmdline.extend(('-r', self.requirements))
+                shutil.copy2(self.requirements,
+                             os.path.join(data_dir, 'requirements.txt'))
 
-        cmdline.append(self.path)
+            cmdline.append(self.path)
 
-        self.execute(os.path.join(venv_path, 'bin', 'pip'), cmdline)
+            self.execute(os.path.join(venv_path, 'bin', 'pip'), cmdline)
 
     def setup_build_venv(self, virtualenv):
         scratchpad = self.make_scratchpad('venv')
-        log('venv', 'Initializing build virtualenv in {}', scratchpad)
-        self.execute(self.python, [os.path.join(virtualenv, 'virtualenv.py'),
-                                   scratchpad])
-        self.execute(os.path.join(scratchpad, 'bin', 'pip'),
-                     ['install'] + self.pip_options +
-                     [make_spec('wheel', self.wheel_version)])
+        self.log.info('Initializing build virtualenv in {}', scratchpad)
+        with self.log.indented():
+            self.execute(self.python,
+                         [os.path.join(virtualenv, 'virtualenv.py'),
+                          scratchpad])
+            self.execute(os.path.join(scratchpad, 'bin', 'pip'),
+                         ['install'] + self.pip_options +
+                         [make_spec('wheel', self.wheel_version)])
         return scratchpad
 
     def put_installer(self, scratchpad, pkginfo, install_script_path):
@@ -267,7 +336,7 @@ class Builder(object):
         os.chmod(fn, 0100755)
 
     def put_meta_info(self, scratchpad, pkginfo):
-        log('meta', 'Placing meta information')
+        self.log.info('Placing meta information')
         with open(os.path.join(scratchpad, 'info.json'), 'w') as f:
             json.dump(pkginfo, f, indent=2)
             f.write('\n')
@@ -287,7 +356,7 @@ class Builder(object):
 
         if format == 'dir':
             rv_fn = os.path.join(self.output, base)
-            log('archiver', 'Saving artifact as directory {}', rv_fn)
+            self.log.info('Saving artifact as directory {}', rv_fn)
             os.rename(scratchpad, rv_fn)
             return
 
@@ -295,7 +364,7 @@ class Builder(object):
         rv_fn = os.path.join(self.output, archive_name)
         tmp_fn = os.path.join(self.output, '.' + archive_name)
 
-        log('archiver', 'Creating distribution archive {}', rv_fn)
+        self.log.info('Creating distribution archive {}', rv_fn)
 
         f = None
         try:
@@ -325,20 +394,24 @@ class Builder(object):
             except OSError:
                 pass
 
-    def extract_virtualenv(self):
-        scratchpad = self.make_scratchpad('venv-tmp')
-        self.execute(find_exe('pip'), ['install', '--download', scratchpad] +
-                     self.pip_options +
-                     [make_spec('virtualenv', self.virtualenv_version)])
+        return rv_fn
 
-        artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
-        if artifact.endswith(('.zip', '.whl')):
-            f = zipfile.ZipFile(artifact)
-        else:
-            f = tarfile.open(artifact)
-        f.extractall(scratchpad)
-        f.close()
-        os.remove(artifact)
+    def extract_virtualenv(self):
+        self.log.info('Downloading and extracting virtualenv bootstrapper')
+        with self.log.indented():
+            scratchpad = self.make_scratchpad('venv-tmp')
+            self.execute(find_exe('pip'), ['install', '--download', scratchpad] +
+                         self.pip_options +
+                         [make_spec('virtualenv', self.virtualenv_version)])
+
+            artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
+            if artifact.endswith(('.zip', '.whl')):
+                f = zipfile.ZipFile(artifact)
+            else:
+                f = tarfile.open(artifact)
+            f.extractall(scratchpad)
+            f.close()
+            os.remove(artifact)
 
         # We need to detect if we contain a single artifact that is a
         # folder in which case we need to use that.  Wheels for instance
@@ -353,44 +426,67 @@ class Builder(object):
 
     def run_postbuild_script(self, scratchpad, venv_path,
                              postbuild_script, install_script_path):
-        log('postbuild', 'Invoking build script {}', postbuild_script)
-
-        script = '''
-        . "%(venv)s/bin/activate"
-        export HERE="%(here)s"
-        export DATA_DIR="%(here)s/data"
-        export SOURCE_DIR="%(path)s"
-        export SCRATCHPAD="%(scratchpad)s"
-        %(script)s
-        ''' % {
-            'venv': venv_path,
-            'script': os.path.abspath(postbuild_script),
-            'path': self.path,
-            'here': scratchpad,
-            'scratchpad': self.make_scratchpad('postbuild'),
-        }
-        env = dict(os.environ)
-        env['INSTALL_SCRIPT'] = install_script_path
-        c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
-                             env=env)
-        c.communicate(script)
-        if c.wait() != 0:
-            raise click.UsageError('Build script failed :(')
+        self.log.info('Invoking build script {}', postbuild_script)
+        with self.log.indentation():
+            script = '''
+            . "%(venv)s/bin/activate"
+            export HERE="%(here)s"
+            export DATA_DIR="%(here)s/data"
+            export SOURCE_DIR="%(path)s"
+            export SCRATCHPAD="%(scratchpad)s"
+            %(script)s
+            ''' % {
+                'venv': venv_path,
+                'script': os.path.abspath(postbuild_script),
+                'path': self.path,
+                'here': scratchpad,
+                'scratchpad': self.make_scratchpad('postbuild'),
+            }
+            env = dict(os.environ)
+            env['INSTALL_SCRIPT'] = install_script_path
+            c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
+                                 env=env)
+            c.communicate(script)
+            if c.wait() != 0:
+                self.log.error('Build script failed :(')
+                raise click.Abort()
 
     def update_wheel_cache(self, wheelhouse):
-        try:
-            os.makedirs(self.wheel_cache)
-        except OSError:
-            pass
+        self.log.info('Updating wheel cache')
+        with self.log.indented():
+            try:
+                os.makedirs(self.wheel_cache)
+            except OSError:
+                pass
 
-        for filename in os.listdir(wheelhouse):
-            if filename[:1] == '.' or not filename.endswith('.whl'):
-                continue
-            if os.path.isfile(os.path.join(self.wheel_cache, filename)):
-                continue
-            log('wheel-cache', 'Caching {} for future use', filename)
-            shutil.copy2(os.path.join(wheelhouse, filename),
-                         os.path.join(self.wheel_cache, filename))
+            for filename in os.listdir(wheelhouse):
+                if filename[:1] == '.' or not filename.endswith('.whl'):
+                    continue
+                if os.path.isfile(os.path.join(self.wheel_cache, filename)):
+                    continue
+                self.log.info('Caching {} for future use', filename)
+                shutil.copy2(os.path.join(wheelhouse, filename),
+                             os.path.join(self.wheel_cache, filename))
+
+    def finalize(self, artifact):
+        self.log.info('Done.')
+        self.log.info('Build artifact successfully created.')
+        with self.log.indented():
+            self.log.info('Artifact: {}', artifact)
+            if not os.path.isfile(artifact):
+                return
+
+            sha1 = hashlib.sha1()
+            md5 = hashlib.md5()
+            with open(artifact, 'rb') as f:
+                while 1:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    sha1.update(chunk)
+                    md5.update(chunk)
+            self.log.info('MD5: {}', md5.hexdigest())
+            self.log.info('SHA1: {}', sha1.hexdigest())
 
     def build(self, format, postbuild_script=None):
         if not os.path.isdir(self.path):
@@ -402,15 +498,17 @@ class Builder(object):
         venv_path = self.setup_build_venv(venv_src)
         local_python = os.path.join(venv_path, 'bin', 'python')
 
-        log('builder', 'Analyzing package')
+        self.log.info('Analyzing package')
         pkginfo = self.describe_package(local_python)
-        log('pkg', 'name={} version={}', pkginfo['name'], pkginfo['version'])
+        with self.log.indented():
+            self.log.info('Name: {}', pkginfo['name'])
+            self.log.info('Version: {}', pkginfo['version'])
 
         scratchpad = self.make_scratchpad('buildbase')
         data_dir = os.path.join(scratchpad, 'data')
         os.makedirs(data_dir)
 
-        self.install_venv_deps(venv_src, data_dir)
+        self.place_venv_deps(venv_src, data_dir)
         self.build_wheels(venv_path, data_dir)
         self.put_meta_info(scratchpad, pkginfo)
 
@@ -425,7 +523,10 @@ class Builder(object):
 
         self.put_installer(scratchpad, pkginfo,
                            install_script_path)
-        self.create_archive(scratchpad, pkginfo, format)
+        artifact = self.create_archive(scratchpad, pkginfo, format)
+
+        self.cleanup()
+        self.finalize(artifact)
 
 
 @click.group(context_settings={
@@ -475,9 +576,11 @@ def cli():
               'path as first argument.  This can be used to inject '
               'additional data into the archive.')
 @click.option('--wheel-cache', type=click.Path(),
-              help='An optional folder where platter should cache wheels.  If '
-              'provided this will speed up future compiles because already '
-              'created wheels will not be compiled again.')
+              help='An optional folder where platter should cache wheels '
+              'instead of the system default.  If you do not want to use '
+              'a wheel cache you can pass the --no-wheel-cache flag.')
+@click.option('--no-wheel-cache', is_flag=True,
+              help='Disables the wheel cache entirely.')
 @click.option('-r', '--requirements', type=click.Path(),
               help='Optionally the path to a requirements file which contains '
               'additional packages that should be installed in addition to '
@@ -485,7 +588,7 @@ def cli():
               'optional dependencies.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
               format, pip_option, postbuild_script, wheel_cache,
-              requirements):
+              no_wheel_cache, requirements):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
 
@@ -495,11 +598,19 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
     archived.  Optionally a post build script can be provided that can place
     more files in the archive and also provide more install steps.
     """
+    log = Log()
     if path is None:
         path = find_closest_package()
-    log('builder', 'Using package from {}', path)
+    log.info('Using package from {}', path)
 
-    with Builder(path, output, python=python,
+    if no_wheel_cache:
+        wheel_cache = None
+    elif wheel_cache is None:
+        wheel_cache = get_default_wheel_cache()
+    if wheel_cache is not None:
+        log.info('Using wheel cache in {}', path)
+
+    with Builder(log, path, output, python=python,
                  virtualenv_version=virtualenv_version,
                  wheel_version=wheel_version,
                  pip_options=list(pip_option),
@@ -508,46 +619,24 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
         builder.build(format, postbuild_script=postbuild_script)
 
 
-@cli.command('cleanup')
-@click.option('--output', type=click.Path(), default='dist',
-              help='The output folder', show_default=True)
-@click.option('-C', '--retain-count', default=0,
-              help='The number of builds to keep.  Defaults to 0.')
-def cleanup_cmd(output, retain_count):
-    """Cleans up old build artifacts in the output folder."""
-    log('rm', 'Cleaning up old artifacts in {}', output)
-    try:
-        files = os.listdir(output)
-    except OSError:
-        return
+@cli.command('clean-cache')
+def clean_cache_cmd():
+    """This command cleans the wheel cache.
 
-    infos = []
-    for filename in files:
-        if filename[:1] == '.':
-            continue
-        try:
-            infos.append((filename,
-                          os.stat(os.path.join(output, filename)).st_mtime))
-        except OSError:
-            pass
-
-    infos.sort(key=lambda x: (x[1], x[0]))
-    if retain_count > 0:
-        infos = infos[:-retain_count]
-
-    anything_removed = False
-    for filename, mtime in infos:
-        log('rm', 'Deleting old artifact {}', filename)
-        try:
-            os.remove(os.path.join(output, filename))
-        except OSError:
-            try:
-                shutil.rmtree(os.path.join(output, filename))
-            except OSError:
-                pass
-        anything_removed = True
-
-    if not anything_removed:
-        log('rm', 'Nothing to remove.')
-    else:
-        log('rm', 'Done.')
+    This is useful when the cache got polluted with bad wheels due to a
+    bug or if the cache grew too large.  Note that this only cleans the
+    wheel cache, it does not clean the download cache of pip.
+    """
+    log = Log()
+    wheel_cache = get_default_wheel_cache()
+    log.info('Cleaning cache in {}', wheel_cache)
+    with log.indented():
+        if os.path.isdir(wheel_cache):
+            for fn in os.listdir(wheel_cache):
+                if fn.endswith('.whl'):
+                    try:
+                        log.info('Removing', fn)
+                        os.remove(os.path.join(wheel_cache, fn))
+                    except OSError:
+                        pass
+    log.info('Done')

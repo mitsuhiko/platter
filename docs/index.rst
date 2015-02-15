@@ -1,10 +1,22 @@
 Platter
 =======
 
-Platter is a utility for Python that simplifies deployments on Unix
-servers.  It's a thin wrapper around pip, virtualenv and wheel and aids in
-creating packages that can install without compiling or downloading on
-servers.
+Platter is a tool for Python that simplifies deployments on Unix servers.
+It's a thin wrapper around pip, virtualenv and wheel and aids in creating
+packages that can install without compiling or downloading on servers.
+
+Why would you want to use it?
+
+*   fastest way to build and distribute Python packages in an ecosystem
+    you control.  With the built-in caching we have seen build time
+    improvements from 400 seconds down to 20 seconds for releases with no
+    version changes on dependencies.
+*   no need to compile or download anything on the destination servers you
+    distribute your packages too.  Everything (with the exception of the
+    interpreter itself) comes perfectly bundled up.
+*   100% control over your dependencies.  No accidental version mismatches
+    on your servers (this includes system dependencies like setuptools,
+    pip and virtualenv).
 
 You can get the tool directly from PyPI::
 
