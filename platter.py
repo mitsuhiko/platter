@@ -435,7 +435,7 @@ class Builder(object):
     def run_build_script(self, scratchpad, venv_path,
                          build_script, install_script_path):
         self.log.info('Invoking build script {}', build_script)
-        with self.log.indentation():
+        with self.log.indented():
             script = '''
             . "%(venv)s/bin/activate"
             export HERE="%(here)s"
