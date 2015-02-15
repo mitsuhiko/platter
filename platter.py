@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import click
 import shutil
 import tarfile
@@ -480,8 +481,9 @@ class Builder(object):
                 _place(os.path.join(wheelhouse, filename))
             _place(venv_artifact)
 
-    def finalize(self, artifact):
+    def finalize(self, artifact, time):
         self.log.info('Done.')
+        self.log.info('Total time elapsed: %.2fs' % time)
         self.log.info('Build artifact successfully created.')
         with self.log.indented():
             self.log.info('Artifact: {}', artifact)
@@ -505,6 +507,7 @@ class Builder(object):
             raise click.UsageError('The project path (%s) does not exist'
                                    % self.path)
 
+        now = time.time()
         venv_src, venv_artifact = self.extract_virtualenv()
 
         venv_path = self.setup_build_venv(venv_src)
@@ -538,7 +541,7 @@ class Builder(object):
         artifact = self.create_archive(scratchpad, pkginfo, format)
 
         self.cleanup()
-        self.finalize(artifact)
+        self.finalize(artifact, time.time() - now)
 
 
 @click.group(context_settings={
@@ -629,7 +632,7 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
     elif wheel_cache is None:
         wheel_cache = get_default_wheel_cache()
     if wheel_cache is not None:
-        log.info('Using wheel cache in {}', path)
+        log.info('Using wheel cache in {}', wheel_cache)
 
     with Builder(log, path, output, python=python,
                  virtualenv_version=virtualenv_version,
