@@ -24,9 +24,9 @@ This depends on your operating system:
 =================== ===================================================
 Operating System    Path
 =================== ===================================================
-Linux               ~/.cache/platter
-OS X                ~/Library/Caches/platter
-Windows             %LOCALAPPDATA%/platter/Cache
+Linux               ``~/.cache/platter``
+OS X                ``~/Library/Caches/platter``
+Windows             ``%LOCALAPPDATA%/platter/Cache``
 =================== ===================================================
 
 How Can I Clean the Cache?
