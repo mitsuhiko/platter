@@ -428,7 +428,9 @@ class Builder(object):
         self.create_archive(scratchpad, pkginfo, format)
 
 
-@click.group()
+@click.group(context_settings={
+    'auto_envvar_prefix': 'PLATTER'
+})
 def cli():
     """Platter packages up a Python package into a tarball that can install
     into a local virtualenv through a bundled install script.  The only
