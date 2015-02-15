@@ -432,9 +432,9 @@ class Builder(object):
 
         return scratchpad, artifact
 
-    def run_postbuild_script(self, scratchpad, venv_path,
-                             postbuild_script, install_script_path):
-        self.log.info('Invoking build script {}', postbuild_script)
+    def run_build_script(self, scratchpad, venv_path,
+                         build_script, install_script_path):
+        self.log.info('Invoking build script {}', build_script)
         with self.log.indentation():
             script = '''
             . "%(venv)s/bin/activate"
@@ -445,7 +445,7 @@ class Builder(object):
             %(script)s
             ''' % {
                 'venv': venv_path,
-                'script': os.path.abspath(postbuild_script),
+                'script': os.path.abspath(build_script),
                 'path': self.path,
                 'here': scratchpad,
                 'scratchpad': self.make_scratchpad('postbuild'),
@@ -502,7 +502,7 @@ class Builder(object):
             self.log.info('MD5: {}', md5.hexdigest())
             self.log.info('SHA1: {}', sha1.hexdigest())
 
-    def build(self, format, postbuild_script=None):
+    def build(self, format, prebuild_script=None, postbuild_script=None):
         if not os.path.isdir(self.path):
             raise click.UsageError('The project path (%s) does not exist'
                                    % self.path)
@@ -523,14 +523,18 @@ class Builder(object):
         data_dir = os.path.join(scratchpad, 'data')
         os.makedirs(data_dir)
 
+        install_script_path = os.path.join(venv_path, 'install_script')
+
         self.place_venv_deps(venv_src, data_dir)
+        if prebuild_script is not None:
+            self.run_build_script(scratchpad, venv_path, prebuild_script,
+                                  install_script_path)
+
         self.build_wheels(venv_path, data_dir)
         self.put_meta_info(scratchpad, pkginfo)
-
-        install_script_path = os.path.join(venv_path, 'install_script')
         open(install_script_path, 'a').close()
         if postbuild_script is not None:
-            self.run_postbuild_script(scratchpad, venv_path, postbuild_script,
+            self.run_build_script(scratchpad, venv_path, postbuild_script,
                                   install_script_path)
 
         if self.wheel_cache:
@@ -585,10 +589,13 @@ def cli():
               help='The format of the resulting build artifact as file '
               'extension.  Supported formats: ' + ', '.join(FORMATS),
               show_default=True, metavar='EXTENSION')
+@click.option('--prebuild-script', type=click.Path(),
+              help='Path to an optional build script that is invoked in '
+              'the build folder as first step.  This can be used to install '
+              'build dependencies such as Cython.')
 @click.option('--postbuild-script', type=click.Path(),
               help='Path to an optional build script that is invoked in '
-              'the build folder as last step with the path to the source '
-              'path as first argument.  This can be used to inject '
+              'the build folder as last step.  This can be used to inject '
               'additional data into the archive.')
 @click.option('--wheel-cache', type=click.Path(),
               help='An optional folder where platter should cache wheels '
@@ -608,8 +615,8 @@ def cli():
               'the main one.  This can be useful when you need to pull in '
               'optional dependencies.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
-              format, pip_option, postbuild_script, wheel_cache,
-              no_wheel_cache, no_download, requirements):
+              format, pip_option, prebuild_script, postbuild_script,
+              wheel_cache, no_wheel_cache, no_download, requirements):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
 
@@ -641,7 +648,8 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
                  no_download=no_download,
                  wheel_cache=wheel_cache,
                  requirements=requirements) as builder:
-        builder.build(format, postbuild_script=postbuild_script)
+        builder.build(format, prebuild_script=prebuild_script,
+                      postbuild_script=postbuild_script)
 
 
 @cli.command('clean-cache')

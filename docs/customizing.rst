@@ -70,8 +70,8 @@ can point to a requirements file::
 
     $ platter build -r requirements.txt ./package
 
-Custom Post-Build Scripts
--------------------------
+Custom Build Scripts
+--------------------
 
 While platter is perfectly capable of creating Python distributions, it
 might encounter problems if you also want to ship other things with your
@@ -79,10 +79,10 @@ application that are not native to the Python ecosystem.  A good example
 for this is your application also wants to install some node-js modules
 into the virtualenv for instance.
 
-In this case you can provide a custom post-build script that is executed
-after the regular build and before packaging up.  It can add additional
-data to the archive and also emit commands that end up in the install
-script.
+In this case you can provide a custom pre-build or post-build script that
+is executed before or after the regular build and before packaging up.  It
+can add additional data to the archive and also emit commands that end up
+in the install script.
 
 The script needs to be executable and is invoked with some environment
 variables.  The following environment variables exist:
@@ -118,10 +118,14 @@ Variable            Description
 The variables ``HERE``, ``DATA_DIR`` and ``VIRTUAL_ENV`` are also
 available in the install script.
 
-The build script can be provided to the build command with the
+The post build script can be provided to the build command with the
 ``--postbuild-script`` parameter::
 
     $ platter build --postbuild-script=build.sh ./package
+
+Likewise pre-build scripts can be provided::
+
+    $ platter build --prebuild-script=prebuild.sh ./package
 
 An example build script that ships a ``npm`` module in the virtualenv can
 look like this:
