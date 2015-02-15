@@ -351,6 +351,30 @@ class Builder(object):
 
         return scratchpad
 
+    def run_prebuild_script(self, scratchpad, venv_path, prebuild_script):
+        log('prebuild', 'Invoking build script {}', prebuild_script)
+
+        script = '''
+        . "%(venv)s/bin/activate"
+        export HERE="%(here)s"
+        export DATA_DIR="%(here)s/data"
+        export SOURCE_DIR="%(path)s"
+        export SCRATCHPAD="%(scratchpad)s"
+        %(script)s
+        ''' % {
+            'venv': venv_path,
+            'script': os.path.abspath(prebuild_script),
+            'path': self.path,
+            'here': scratchpad,
+            'scratchpad': self.make_scratchpad('prebuild'),
+        }
+        env = dict(os.environ)
+        c = subprocess.Popen(['sh'], stdin=subprocess.PIPE, cwd=scratchpad,
+                             env=env)
+        c.communicate(script)
+        if c.wait() != 0:
+            raise click.UsageError('Build script failed :(')
+
     def run_postbuild_script(self, scratchpad, venv_path,
                              postbuild_script, install_script_path):
         log('postbuild', 'Invoking build script {}', postbuild_script)
@@ -392,7 +416,7 @@ class Builder(object):
             shutil.copy2(os.path.join(wheelhouse, filename),
                          os.path.join(self.wheel_cache, filename))
 
-    def build(self, format, postbuild_script=None):
+    def build(self, format, prebuild_script=None, postbuild_script=None):
         if not os.path.isdir(self.path):
             raise click.UsageError('The project path (%s) does not exist'
                                    % self.path)
@@ -402,13 +426,16 @@ class Builder(object):
         venv_path = self.setup_build_venv(venv_src)
         local_python = os.path.join(venv_path, 'bin', 'python')
 
-        log('builder', 'Analyzing package')
-        pkginfo = self.describe_package(local_python)
-        log('pkg', 'name={} version={}', pkginfo['name'], pkginfo['version'])
-
         scratchpad = self.make_scratchpad('buildbase')
         data_dir = os.path.join(scratchpad, 'data')
         os.makedirs(data_dir)
+
+        if prebuild_script is not None:
+            self.run_prebuild_script(scratchpad, venv_path, prebuild_script)
+
+        log('builder', 'Analyzing package')
+        pkginfo = self.describe_package(local_python)
+        log('pkg', 'name={} version={}', pkginfo['name'], pkginfo['version'])
 
         self.install_venv_deps(venv_src, data_dir)
         self.build_wheels(venv_path, data_dir)
@@ -469,6 +496,11 @@ def cli():
               help='The format of the resulting build artifact as file '
               'extension.  Supported formats: ' + ', '.join(FORMATS),
               show_default=True, metavar='EXTENSION')
+@click.option('--prebuild-script', type=click.Path(),
+              help='Path to an optional build script that is invoked in '
+              'the build folder as first step with the path to the source '
+              'path as first argument.  This can be used to install '
+              'pre-build dependencies such as Cython.')
 @click.option('--postbuild-script', type=click.Path(),
               help='Path to an optional build script that is invoked in '
               'the build folder as last step with the path to the source '
@@ -484,8 +516,8 @@ def cli():
               'the main one.  This can be useful when you need to pull in '
               'optional dependencies.')
 def build_cmd(path, output, python, virtualenv_version, wheel_version,
-              format, pip_option, postbuild_script, wheel_cache,
-              requirements):
+              format, pip_option, prebuild_script, postbuild_script,
+              wheel_cache, requirements):
     """Builds a platter package.  The argument is the path to the package.
     If not given it discovers the closest setup.py.
 
@@ -505,7 +537,8 @@ def build_cmd(path, output, python, virtualenv_version, wheel_version,
                  pip_options=list(pip_option),
                  wheel_cache=wheel_cache,
                  requirements=requirements) as builder:
-        builder.build(format, postbuild_script=postbuild_script)
+        builder.build(format, prebuild_script=prebuild_script,
+                      postbuild_script=postbuild_script)
 
 
 @cli.command('cleanup')
