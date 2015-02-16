@@ -12,7 +12,7 @@ Why would you want to use it?
     improvements from 400 seconds down to 20 seconds for releases with no
     version changes on dependencies.
 *   no need to compile or download anything on the destination servers you
-    distribute your packages too.  Everything (with the exception of the
+    distribute your packages to.  Everything (with the exception of the
     interpreter itself) comes perfectly bundled up.
 *   100% control over your dependencies.  No accidental version mismatches
     on your servers (this includes system dependencies like setuptools,
