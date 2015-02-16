@@ -10,8 +10,8 @@ Platter can be installed into a virtual environment with ``pip``::
     $ virtualenv venv
     $ ./venv/bin/pip install platter
 
-It's recommended to install platter into it's own virtualenv as it has
-it's own dependencies that might otherwise interfere with your system.
+It's recommended to install platter into its own virtualenv as it has
+its own dependencies that might otherwise interfere with your system.
 However all packages build with platter are themselves created in a
 separate virtualenv.
 
