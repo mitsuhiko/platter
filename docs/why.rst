@@ -3,7 +3,7 @@ Why Platter?
 
 Platter is not the first software of it's kind that tries to help you with
 Python deployments.  The main difference between platter and alternative
-solutions is that platter tries to diverage as little from common
+solutions is that platter tries to diverge as little from common
 deployment scenarios and by providing the highest amount of stability and
 speed possible.  Changes to the Python packaging infrastructure will not
 affect platter based deployments.
@@ -79,19 +79,19 @@ An alternative approach to fast deployment's is Yelp's `venv-update
 <https://github.com/Yelp/venv-update>`_.  It tries to make things fast by
 figuring out the least amount of changes necessary to a virtualenv.
 This approach works rasonably well but causes problems if you want to move
-a virtualenv around.  For instance it's not idea if you want to have a
+a virtualenv around.  For instance it's not ideal if you want to have a
 version specific installation for quick rollbacks.
 
-Some testing also does not reveal an noticable performance improvement of
+Some testing also does not reveal a noticable performance improvement of
 `venv-update` over platter.
 
 Docker
 ``````
 
-Platter and docker are good friends, but one does not replace the other.
+Platter and Docker are good friends, but one does not replace the other.
 It makes a lot of sense to install a platter distribution into a docker
-container but it's probably not the best idea to use docker alone.  The
-reason for this is that platter allows you to isolate the process of
+container but it's probably not the best idea to use Docker alone.  The
+reason for this is that Platter allows you to isolate the process of
 building and deploying, keeping the final server clean of unnecessary
 development dependencies (compilers etc.).  It also means that you can
 disconnect your final deployment container entirely from the internet for

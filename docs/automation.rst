@@ -9,7 +9,7 @@ you can use platter together with to make automated deployments a reality.
 Automated Building
 ------------------
 
-To automate the building process we recommend `fabric
+To automate the building process we recommend `Fabric
 <http://www.fabfile.org/>`_.  Fabric can be used to upload the source
 artifacts on a build server, then invoke the building process there and to
 fetch down the resulting build artifact.  This allows you to trigger a
