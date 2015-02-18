@@ -378,7 +378,7 @@ class Builder(object):
             rv_fn = os.path.join(self.output, base)
             self.log.info('Saving artifact as directory {}', rv_fn)
             os.rename(scratchpad, rv_fn)
-            return
+            return rv_fn
 
         archive_name = base + '.' + format
         rv_fn = os.path.join(self.output, archive_name)
