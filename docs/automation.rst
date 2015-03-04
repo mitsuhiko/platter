@@ -33,6 +33,7 @@ something like this::
 
         # upload that archive to a temporary folder
         buildtmp = '/tmp/build-%s' % os.urandom(20).encode('hex')
+        run('mkdir %s' % buildtmp)
         put(tmp, '%s/src.tar.gz' % buildtmp)
 
         # In that folder
@@ -88,10 +89,10 @@ Here an example `fabfile.py` which can upload a package to hosts::
         # If not archive is provided, we use the 'last' one
         if archive is None:
             archive = os.path.join('dist',
-                sorted(os.path.listdir('dist'))[-1])
+                sorted(os.listdir('dist'))[-1])
 
-        # Uplaod the archive and make some temporary space in /tmp
-        put(filename, '/tmp/yourapp.tar.gz')
+        # Upload the archive and make some temporary space in /tmp
+        put(archive, '/tmp/yourapp.tar.gz')
         run('rm -rf /tmp/yourapp && mkdir -p /tmp/yourapp')
 
         # Now enter the temporary folder
