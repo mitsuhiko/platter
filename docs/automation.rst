@@ -21,7 +21,7 @@ something like this::
 
     import os
     import tempfile
-    from fabric.api import task, local, run, cd, get, hosts
+    from fabric.api import task, local, run, cd, get, put, hosts
 
 
     @task
