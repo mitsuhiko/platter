@@ -4,7 +4,7 @@ Automation with Platter
 =======================
 
 Platter is built with automation in mind.  There are a handful of tools
-you can use platter together with to make automated deployments a reality.
+you can use platter together with, to make automated deployments a reality.
 
 Automated Building
 ------------------
@@ -12,7 +12,7 @@ Automated Building
 To automate the building process we recommend `Fabric
 <http://www.fabfile.org/>`_.  Fabric can be used to upload the source
 artifacts on a build server, then invoke the building process there and to
-fetch down the resulting build artifact.  This allows you to trigger a
+fetch down the resulting build artifact. This allows you to trigger a
 build from any machine even if it does not have the correct architecture
 or operating system.
 
@@ -86,7 +86,7 @@ Here an example `fabfile.py` which can upload a package to hosts::
 
     @task
     def deploy(archive=None):
-        # If not archive is provided, we use the 'last' one
+        # If archive is not provided, we use the 'last' one
         if archive is None:
             archive = os.path.join('dist',
                 sorted(os.listdir('dist'))[-1])
