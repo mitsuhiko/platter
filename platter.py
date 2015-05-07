@@ -136,7 +136,7 @@ class Log(object):
                         raise
                 else:
                     color = f == process.stdout and 'cyan' or 'yellow'
-                    self.info(click.style(line.rstrip(), fg=color))
+                    self.info('{}', click.style(line.rstrip(), fg=color))
 
     @contextmanager
     def indented(self):
