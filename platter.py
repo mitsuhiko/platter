@@ -114,9 +114,12 @@ class Log(object):
     def outdent(self):
         self.indentation -= 1
 
-    def info(self, fmt, *args, **kwargs):
+    def echo(self, s):
         prefix = '  ' * self.indentation
-        click.echo(prefix + fmt.format(*args, **kwargs))
+        click.echo(prefix + s)
+
+    def info(self, fmt, *args, **kwargs):
+        self.echo(fmt.format(*args, **kwargs))
 
     def error(self, fmt, *args, **kwargs):
         return self.info('Error: ' + click.style(fmt, fg='red'),
@@ -136,7 +139,7 @@ class Log(object):
                         raise
                 else:
                     color = f == process.stdout and 'cyan' or 'yellow'
-                    self.info(click.style(line.rstrip(), fg=color))
+                    self.echo(click.style(line.rstrip(), fg=color))
 
     @contextmanager
     def indented(self):
