@@ -4,6 +4,7 @@ import json
 import time
 import click
 import errno
+import codecs
 import shutil
 import select
 import tarfile
@@ -103,6 +104,11 @@ echo "Done."
 '''
 
 
+def utf8open(fn, mode='r'):
+    """Shorthand for opening a file in utf-8 mode"""
+    return codecs.open(fn, mode, encoding='utf-8')
+
+
 class Log(object):
 
     def __init__(self):
@@ -138,6 +144,7 @@ class Log(object):
                     if e.errno != errno.EINTR:
                         raise
                 else:
+                    line = line.decode('utf-8')
                     color = f == process.stdout and 'cyan' or 'yellow'
                     self.echo(click.style(line.rstrip(), fg=color))
 
@@ -267,7 +274,8 @@ class Builder(object):
             if cl.wait() != 0:
                 self.log.error('Failed to execute command "%s"' % cmd)
                 raise click.Abort()
-            return rv
+            if rv is not None:
+                return rv.decode('utf-8')
 
     def cleanup(self):
         while self.scratchpads:
@@ -346,29 +354,29 @@ class Builder(object):
     def put_installer(self, scratchpad, pkginfo, install_script_path):
         fn = os.path.join(scratchpad, 'install.sh')
 
-        with open(install_script_path) as f:
-            postinstall = f.read().rstrip().decode('utf-8')
+        with utf8open(install_script_path) as f:
+            postinstall = f.read().rstrip()
 
-        with open(fn, 'w') as f:
+        with utf8open(fn, 'w') as f:
             f.write((INSTALLER % dict(
                 name=pkginfo['ident'],
                 pkg=pkginfo['name'],
                 python=os.path.basename(self.python),
                 postinstall=postinstall,
-            )).encode('utf-8'))
-        os.chmod(fn, 0100755)
+            )))
+        os.chmod(fn, 0o100755)
 
     def put_meta_info(self, scratchpad, pkginfo):
         self.log.info('Placing meta information')
-        with open(os.path.join(scratchpad, 'info.json'), 'w') as f:
+        with utf8open(os.path.join(scratchpad, 'info.json'), 'w') as f:
             json.dump(pkginfo, f, indent=2)
             f.write('\n')
-        with open(os.path.join(scratchpad, 'VERSION'), 'w') as f:
-            f.write(pkginfo['version'].encode('utf-8') + '\n')
-        with open(os.path.join(scratchpad, 'PLATFORM'), 'w') as f:
-            f.write(pkginfo['platform'].encode('utf-8') + '\n')
-        with open(os.path.join(scratchpad, 'PACKAGE'), 'w') as f:
-            f.write(pkginfo['name'].encode('utf-8') + '\n')
+        with utf8open(os.path.join(scratchpad, 'VERSION'), 'w') as f:
+            f.write(pkginfo['version'] + '\n')
+        with utf8open(os.path.join(scratchpad, 'PLATFORM'), 'w') as f:
+            f.write(pkginfo['platform'] + '\n')
+        with utf8open(os.path.join(scratchpad, 'PACKAGE'), 'w') as f:
+            f.write(pkginfo['name'] + '\n')
 
     def create_archive(self, scratchpad, pkginfo, format):
         base = pkginfo['ident'] + '-' + pkginfo['platform']
@@ -551,7 +559,7 @@ class Builder(object):
 
         self.build_wheels(venv_path, data_dir)
         self.put_meta_info(scratchpad, pkginfo)
-        open(install_script_path, 'a').close()
+        utf8open(install_script_path, 'a').close()
         if postbuild_script is not None:
             self.run_build_script(scratchpad, venv_path, postbuild_script,
                                   install_script_path)
