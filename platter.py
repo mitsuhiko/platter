@@ -85,14 +85,12 @@ echo 'Setting up virtualenv'
 "$py" "$DATA_DIR/virtualenv.py" "$1"
 VIRTUAL_ENV="$(cd "$1"; pwd)"
 
-INSTALL_ARGS=''
-if [ -f "$DATA_DIR/requirements.txt" ]; then
-  INSTALL_ARGS="$INSTALL_ARGS"\ -r\ "$DATA_DIR/requirements.txt"
-fi
+# Get unique names of all the wheels
+INSTALL_ARGS=$(cd "$DATA_DIR"; ls -1 *.whl | awk -F - '{ gsub("_", "-", $1); print $1 }' | uniq)
 
 echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
-  --find-links "$DATA_DIR" wheel $INSTALL_ARGS %(pkg)s | grep -v '^$'
+  --find-links "$DATA_DIR" $INSTALL_ARGS | grep -v '^$'
 
 # Potential post installation
 cd "$HERE"
@@ -324,8 +322,6 @@ class Builder(object):
 
             if self.requirements is not None:
                 cmdline.extend(('-r', self.requirements))
-                shutil.copy2(self.requirements,
-                             os.path.join(data_dir, 'requirements.txt'))
 
             cmdline.append(self.path)
 
@@ -352,7 +348,6 @@ class Builder(object):
         with open(fn, 'w') as f:
             f.write((INSTALLER % dict(
                 name=pkginfo['ident'],
-                pkg=pkginfo['name'],
                 python=os.path.basename(self.python),
                 postinstall=postinstall,
             )).encode('utf-8'))
@@ -428,23 +423,24 @@ class Builder(object):
                          [make_spec('virtualenv', self.virtualenv_version)])
 
             artifact = os.path.join(scratchpad, os.listdir(scratchpad)[0])
+            venv_scratchpad = os.path.join(scratchpad, 'virtualenv')
             if artifact.endswith(('.zip', '.whl')):
                 f = zipfile.ZipFile(artifact)
             else:
                 f = tarfile.open(artifact)
-            f.extractall(scratchpad)
+            f.extractall(venv_scratchpad)
             f.close()
 
         # We need to detect if we contain a single artifact that is a
         # folder in which case we need to use that.  Wheels for instance
         # do not contain a wrapping folder.
-        artifacts = os.listdir(scratchpad)
+        artifacts = os.listdir(venv_scratchpad)
         if len(artifacts) == 1:
-            rv = os.path.join(scratchpad, artifacts[0])
+            rv = os.path.join(venv_scratchpad, artifacts[0])
             if os.path.isdir(rv):
                 return rv, artifact
 
-        return scratchpad, artifact
+        return venv_scratchpad, artifact
 
     def run_build_script(self, scratchpad, venv_path,
                          build_script, install_script_path):
