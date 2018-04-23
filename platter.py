@@ -315,7 +315,7 @@ class Builder(object):
         pip = os.path.join(venv_path, 'bin', 'pip')
 
         with self.log.indented():
-            self.execute(pip, ['install', '--download', data_dir] +
+            self.execute(pip, ['download', '--dest', data_dir] +
                          self.get_pip_options() +
                          [make_spec('wheel', self.wheel_version)])
 
@@ -423,7 +423,7 @@ class Builder(object):
         self.log.info('Downloading and extracting virtualenv bootstrapper')
         with self.log.indented():
             scratchpad = self.make_scratchpad('venv-tmp')
-            self.execute(find_exe('pip'), ['install', '--download', scratchpad] +
+            self.execute(find_exe('pip'), ['download', '--dest', scratchpad] +
                          self.get_pip_options() +
                          [make_spec('virtualenv', self.virtualenv_version)])
 
