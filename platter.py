@@ -52,7 +52,7 @@ param_error() {
 
 py="%(python)s"
 
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case $1 in
     --help)         show_help ;;
     -p|--python)
@@ -71,7 +71,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [ "$1" == "" ]; then
+if [[ "$1" == "" ]]; then
   param_error "destination argument is required"
 fi
 
@@ -87,7 +87,7 @@ echo 'Setting up virtualenv'
 VIRTUAL_ENV="$(cd "$1"; pwd)"
 
 INSTALL_ARGS=''
-if [ -f "$DATA_DIR/requirements.txt" ]; then
+if [[ -f "$DATA_DIR/requirements.txt" ]]; then
   INSTALL_ARGS="$INSTALL_ARGS"\ -r\ "$DATA_DIR/requirements.txt"
 fi
 
