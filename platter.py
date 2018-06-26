@@ -46,7 +46,7 @@ EOF
 param_error() {
   show_usage
   echo
-  echo "Error: $1"
+  echo "Error: $1" >&2
   exit 1
 }
 
@@ -79,7 +79,8 @@ HERE="$(cd "$(dirname "$0")"; pwd)"
 DATA_DIR="$HERE/data"
 
 # Ensure Python exists
-command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)"
+command -v "$py" &> /dev/null || \
+  { echo "Given python interpreter not found ($py)" >&2; exit 1; }
 
 echo 'Setting up virtualenv'
 "$py" "$DATA_DIR/virtualenv.py" "$1"
@@ -93,6 +94,9 @@ fi
 echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
   --find-links "$DATA_DIR" wheel $INSTALL_ARGS %(pkg)s | grep -v '^$'
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+  exit 1
+fi
 
 # Potential post installation
 cd "$HERE"
