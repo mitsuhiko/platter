@@ -337,7 +337,7 @@ class Builder(object):
 
             cmdline.append(self.path)
 
-            self.execute(os.path.join(venv_path, 'bin', 'pip'), cmdline)
+            self.execute(pip, cmdline)
 
     def setup_build_venv(self, virtualenv):
         scratchpad = self.make_scratchpad('venv')
