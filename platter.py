@@ -98,6 +98,10 @@ if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
   exit 1
 fi
 
+echo "Verifying install"
+"$VIRTUAL_ENV/bin/pip" check || \
+    { echo "Broken requirements detected" >&2; exit 1; }
+
 # Potential post installation
 cd "$HERE"
 . "$VIRTUAL_ENV/bin/activate"
