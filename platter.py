@@ -25,7 +25,7 @@ INSTALLER = '''\
 set -e
 
 show_usage() {
-echo "Usage: ./install.sh [OPTIONS] DST"
+echo 'Usage: ./install.sh [OPTIONS] DST'
 }
 
 show_help() {
@@ -72,7 +72,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ "$1" == "" ]]; then
-  param_error "destination argument is required"
+  param_error 'destination argument is required'
 fi
 
 HERE="$(cd "$(dirname "$0")"; pwd)"
@@ -91,23 +91,23 @@ if [[ -f "$DATA_DIR/requirements.txt" ]]; then
   INSTALL_ARGS="$INSTALL_ARGS"\ -r\ "$DATA_DIR/requirements.txt"
 fi
 
-echo "Installing %(name)s"
+echo 'Installing %(name)s'
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
   --find-links "$DATA_DIR" wheel $INSTALL_ARGS %(pkg)s | grep -v '^$'
 if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
   exit 1
 fi
 
-echo "Verifying install"
+echo 'Verifying install'
 "$VIRTUAL_ENV/bin/pip" check || \
-    { echo "Broken requirements detected" >&2; exit 1; }
+    { echo 'Broken requirements detected' >&2; exit 1; }
 
 # Potential post installation
 cd "$HERE"
 . "$VIRTUAL_ENV/bin/activate"
 %(postinstall)s
 
-echo "Done."
+echo 'Done.'
 '''
 
 
