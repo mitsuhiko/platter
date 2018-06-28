@@ -3,9 +3,16 @@ Platter Changelog
 
 This contains all major version changes between Platter releases.
 
-Version 1.0
+Version 1.1
 -----------
 
 (no codename yet, release date to be decided)
+
+- Improved error handling on installation of bundled distributions.
+
+Version 1.0
+-----------
+
+Released on June 14th 2018
 
 - Initial release
