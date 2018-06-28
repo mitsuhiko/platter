@@ -78,7 +78,7 @@ venv-update
 An alternative approach to fast deployment's is Yelp's `venv-update
 <https://github.com/Yelp/venv-update>`_.  It tries to make things fast by
 figuring out the least amount of changes necessary to a virtualenv.
-This approach works rasonably well but causes problems if you want to move
+This approach works reasonably well but causes problems if you want to move
 a virtualenv around.  For instance it's not ideal if you want to have a
 version specific installation for quick rollbacks.
 
