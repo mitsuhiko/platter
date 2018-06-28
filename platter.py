@@ -46,13 +46,13 @@ EOF
 param_error() {
   show_usage
   echo
-  echo "Error: $1"
+  echo "Error: $1" >&2
   exit 1
 }
 
 py="%(python)s"
 
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case $1 in
     --help)         show_help ;;
     -p|--python)
@@ -71,7 +71,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [ "$1" == "" ]; then
+if [[ "$1" == "" ]]; then
   param_error "destination argument is required"
 fi
 
@@ -79,20 +79,24 @@ HERE="$(cd "$(dirname "$0")"; pwd)"
 DATA_DIR="$HERE/data"
 
 # Ensure Python exists
-command -v "$py" &> /dev/null || error "Given python interpreter not found ($py)"
+command -v "$py" &> /dev/null || \
+  { echo "Given python interpreter not found ($py)" >&2; exit 1; }
 
 echo 'Setting up virtualenv'
 "$py" "$DATA_DIR/virtualenv.py" "$1"
 VIRTUAL_ENV="$(cd "$1"; pwd)"
 
 INSTALL_ARGS=''
-if [ -f "$DATA_DIR/requirements.txt" ]; then
+if [[ -f "$DATA_DIR/requirements.txt" ]]; then
   INSTALL_ARGS="$INSTALL_ARGS"\ -r\ "$DATA_DIR/requirements.txt"
 fi
 
 echo "Installing %(name)s"
 "$VIRTUAL_ENV/bin/pip" install --pre --no-index \
   --find-links "$DATA_DIR" wheel $INSTALL_ARGS %(pkg)s | grep -v '^$'
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+  exit 1
+fi
 
 # Potential post installation
 cd "$HERE"
