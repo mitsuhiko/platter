@@ -440,19 +440,20 @@ class Builder(object):
                 f = zipfile.ZipFile(artifact)
             else:
                 f = tarfile.open(artifact)
-            f.extractall(scratchpad)
+            extracted_path = os.path.join(scratchpad, 'extracted')
+            f.extractall(extracted_path)
             f.close()
 
         # We need to detect if we contain a single artifact that is a
         # folder in which case we need to use that.  Wheels for instance
         # do not contain a wrapping folder.
-        artifacts = os.listdir(scratchpad)
+        artifacts = os.listdir(extracted_path)
         if len(artifacts) == 1:
-            rv = os.path.join(scratchpad, artifacts[0])
+            rv = os.path.join(extracted_path, artifacts[0])
             if os.path.isdir(rv):
                 return rv, artifact
 
-        return scratchpad, artifact
+        return extracted_path, artifact
 
     def run_build_script(self, scratchpad, venv_path,
                          build_script, install_script_path):
