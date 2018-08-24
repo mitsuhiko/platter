@@ -388,7 +388,7 @@ class Builder(object):
         if format == 'dir':
             rv_fn = os.path.join(self.output, base)
             self.log.info('Saving artifact as directory {}', rv_fn)
-            os.rename(scratchpad, rv_fn)
+            shutil.move(scratchpad, rv_fn)
             return rv_fn
 
         archive_name = base + '.' + format
