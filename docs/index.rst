@@ -26,8 +26,8 @@ To create a platter distribution all you need is this::
 
     $ platter build /path/to/your/python/package
 
-Once this finishes, it will have created a tarball of the fully built
-Python package together will all dependencies and an installation script.
+The above creates a tarball of the fully built
+Python package together with all dependencies and an installation script.
 You can then take this package and push it to as many servers as you want
 and install it::
 
